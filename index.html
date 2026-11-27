@@ -146,15 +146,13 @@ button.big{font-size:16px;padding:10px 20px}
   <button data-tab="ep">渡航者</button>
   <button data-tab="rep">job会報告</button>
   <button data-tab="set">設定</button>
-  <button data-tab="data">Googleカレンダー・出力</button>
-  <button data-tab="mem">メンバー</button>
+  <button data-tab="data">出力・バックアップ</button>
  </nav>
 </header>
 <main id="main"></main>
 <div class="toast" id="toast"></div>
 <div class="modal" id="modal"><div class="box"><p class="msg" id="modal-msg"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="modal-no">キャンセル</button><button class="btn pri" id="modal-ok">OK</button></div></div></div>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
 <script src="config.js"></script>
 <script>
@@ -282,53 +280,41 @@ function normAll(d){
 /* ================= 保存先:Firebase(全員で共有) or このブラウザだけ(config.js 未設定のとき=お試しモード) ================= */
 const FB_CFG = window.OGX_FIREBASE_CONFIG || null;
 const CONFIGURED = !!(FB_CFG && typeof FB_CFG.apiKey==='string' && FB_CFG.apiKey && !/ここに|YOUR_|xxxx/i.test(FB_CFG.apiKey) && FB_CFG.projectId);
-let MODE = 'loading';           // 'shared' | 'local' | 'loading' | 'login' | 'denied'
-let DB = null, AUTH = null, USER = null, ME = null, IS_ADMIN = false, connNote = '', connErr = false, loginErr = '';
-let MEMBERS = [], unsubs = [];
+let MODE = 'loading';           // 'shared' | 'local' | 'loading' | 'gate'
+let DB = null, connNote = '', connErr = false, gateErr = '', ROOM = '', PHRASE = '', CFG_EXISTS = true;
+let unsubs = [];
 let state = {...defaultConfig(), irCalls:[], eps:[]};
+const PKEY = 'ogx-opcal-phrase';
 const wq = {};
 function enqueue(path, fn){ const p = (wq[path] || Promise.resolve()).then(fn).catch(onWriteErr); wq[path] = p; return p; }
 function onWriteErr(e){
  const c = e && e.code;
- if(c==='permission-denied') toast('保存する権限がありません(メンバー登録が外れた可能性があります)');
+ if(c==='permission-denied') toast('保存できませんでした(Firebase のルール設定を確認してください)');
  else if(c==='resource-exhausted') toast('無料枠の上限に達したため保存できませんでした。時間をおいて試してください');
  else toast('保存に失敗しました。通信状況を確認してもう一度お試しください');
 }
+function R(p){ return 'rooms/' + ROOM + '/' + p; }
 function saveLocal(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch(e){} }
 function loadLocal(){ try { const raw = localStorage.getItem(STORE_KEY); if(raw) return normAll(JSON.parse(raw)); } catch(e){} return defaultLocalState(); }
 function cfgBody(){ return clone({opDefs:state.opDefs, events:state.events, jobMeetings:state.jobMeetings, irTarget:state.irTarget, teamColors:state.teamColors}); }
-function stampBy(){ return {updatedBy: ME ? ME.email : '', updatedAt: firebase.firestore.FieldValue.serverTimestamp()}; }
-function saveCfg(){ if(MODE==='shared'){ const b = {...cfgBody(), ...stampBy()}; enqueue('config/main', ()=>DB.doc('config/main').set(b)); } else saveLocal(); }
-function saveIr(){ if(MODE==='shared'){ const b = {calls: state.irCalls.slice(), ...stampBy()}; enqueue('config/ir', ()=>DB.doc('config/ir').set(b)); } else saveLocal(); }
-function saveEp(ep){ if(MODE==='shared'){ const {id, ...rest} = ep; const b = {...clone(rest), ...stampBy()}; enqueue('eps/'+id, ()=>DB.doc('eps/'+id).set(b)); } else saveLocal(); }
-function removeEp(id){ if(MODE==='shared') enqueue('eps/'+id, ()=>DB.doc('eps/'+id).delete()); else saveLocal(); }
-function saveStatus(ep, opId){ if(MODE==='shared'){ const v = clone(ep.statuses[opId]); enqueue('eps/'+ep.id, ()=>DB.doc('eps/'+ep.id).update(new firebase.firestore.FieldPath('statuses', opId), v)); } else saveLocal(); }
+function stampBy(){ return {updatedAt: firebase.firestore.FieldValue.serverTimestamp()}; }
+function saveCfg(){ if(MODE==='shared'){ const b = {...cfgBody(), ...stampBy()}; enqueue('config/main', ()=>DB.doc(R('config/main')).set(b)); } else saveLocal(); }
+function saveIr(){ if(MODE==='shared'){ const b = {calls: state.irCalls.slice(), ...stampBy()}; enqueue('config/ir', ()=>DB.doc(R('config/ir')).set(b)); } else saveLocal(); }
+function saveEp(ep){ if(MODE==='shared'){ const {id, ...rest} = ep; const b = {...clone(rest), ...stampBy()}; enqueue('eps/'+id, ()=>DB.doc(R('eps/'+id)).set(b)); } else saveLocal(); }
+function removeEp(id){ if(MODE==='shared') enqueue('eps/'+id, ()=>DB.doc(R('eps/'+id)).delete()); else saveLocal(); }
+function saveStatus(ep, opId){ if(MODE==='shared'){ const v = clone(ep.statuses[opId]); enqueue('eps/'+ep.id, ()=>DB.doc(R('eps/'+ep.id)).update(new firebase.firestore.FieldPath('statuses', opId), v)); } else saveLocal(); }
 
 let pendingRender = false;
 function editing(){ const a = document.activeElement; return a && a.closest && a.closest('#main') && (a.tagName==='TEXTAREA' || (a.tagName==='INPUT' && !['checkbox','radio','file','button','date','time','color'].includes(a.type))); }
 function scheduleRender(){ if(editing()) pendingRender = true; else render(); }
 document.addEventListener('focusout', () => setTimeout(() => { if(pendingRender && !editing()){ pendingRender = false; render(); } }, 0));
 
-function authErrMsg(e){
- const c = (e && e.code) || '';
- if(c==='auth/popup-closed-by-user' || c==='auth/cancelled-popup-request') return 'ログインがキャンセルされました。';
- if(c==='auth/popup-blocked') return 'ポップアップがブロックされました。ブラウザのアドレスバー付近の表示から、このサイトのポップアップを許可してください。';
- if(c==='auth/unauthorized-domain') return 'このURLはログインが許可されていません(手順書「Firebase の承認済みドメイン」を確認してください)。';
- if(c==='auth/operation-not-allowed') return 'Google ログインが有効になっていません(手順書「Authentication で Google を有効にする」を確認してください)。';
- if(c==='auth/network-request-failed') return '通信エラーです。ネットワークを確認してください。';
- if(c==='auth/user-mismatch') return 'ログイン中とは別の Google アカウントが選ばれました。同じアカウントを選んでください。';
- return 'ログインできませんでした(' + esc(c || (e && e.message) || '不明なエラー') + ')';
+/* 合言葉 → 保存場所の名前(合言葉そのものは保存場所に出さない) */
+async function roomOf(phrase){
+ const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('ogx-opcal:' + phrase));
+ return 'r_' + [...new Uint8Array(buf)].slice(0,16).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
-async function login(){
- loginErr = '';
- const p = new firebase.auth.GoogleAuthProvider(); p.setCustomParameters({prompt:'select_account'});
- try { await AUTH.signInWithPopup(p); }
- catch(e){
-  if(e && (e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment')){ try { await AUTH.signInWithRedirect(p); return; } catch(e2){ e = e2; } }
-  loginErr = authErrMsg(e); render();
- }
-}
-async function logout(){ await AUTH.signOut(); }
+function inviteUrl(){ return location.origin + location.pathname + '#k=' + encodeURIComponent(PHRASE); }
 
 function subscribe(){
  const got = {cfg:false, ir:false, eps:false};
@@ -337,17 +323,28 @@ function subscribe(){
   if(!snap.metadata.fromCache){ got[k] = true; if(got.cfg && got.ir && got.eps){ clearTimeout(timer); connNote = ''; } }
   scheduleRender();
  };
- const fail = e => { clearTimeout(timer); connErr = true; connNote = e && e.code==='permission-denied' ? '共有データを読む権限がありません。メンバー登録を管理者に確認してください。' : '共有データの読み込みでエラーが発生しました。ページを開き直してください。'; render(); };
- unsubs.push(DB.doc('config/main').onSnapshot(s => { const keepIr = state.irCalls, keepEps = state.eps; state = {...normCfg(s.exists ? clone(s.data()) : null), irCalls:keepIr, eps:keepEps}; arrived('cfg', s); }, fail));
- unsubs.push(DB.doc('config/ir').onSnapshot(s => { const d = s.exists ? s.data() : null; state.irCalls = d && Array.isArray(d.calls) ? [...new Set(d.calls.filter(isValidDate))] : []; arrived('ir', s); }, fail));
- unsubs.push(DB.collection('eps').onSnapshot(q => { state.eps = q.docs.map(d => normEp({...clone(d.data()), id:d.id})); arrived('eps', q); }, fail));
- unsubs.push(DB.collection('members').onSnapshot(q => {
-  MEMBERS = q.docs.map(d => ({email:d.id, name:str(d.data().name), role:d.data().role==='admin'?'admin':'member'})).sort((a,b)=>a.email.localeCompare(b.email));
-  const me = MEMBERS.find(m=>m.email===(ME&&ME.email));
-  if(me){ ME = {...ME, ...me}; IS_ADMIN = me.role==='admin'; }
-  else if(ME){ connErr = true; connNote = 'あなたのメンバー登録が削除されました。'; }
-  scheduleRender();
- }, () => {}));
+ const fail = e => { clearTimeout(timer); connErr = true; connNote = e && e.code==='permission-denied' ? '共有データを読めません。Firebase のルール(手順書の手順1)が貼り替えてあるか確認してください。' : '共有データの読み込みでエラーが発生しました。ページを開き直してください。'; render(); };
+ unsubs.push(DB.doc(R('config/main')).onSnapshot(s => { CFG_EXISTS = s.exists; const keepIr = state.irCalls, keepEps = state.eps; state = {...normCfg(s.exists ? clone(s.data()) : null), irCalls:keepIr, eps:keepEps}; arrived('cfg', s); }, fail));
+ unsubs.push(DB.doc(R('config/ir')).onSnapshot(s => { const d = s.exists ? s.data() : null; state.irCalls = d && Array.isArray(d.calls) ? [...new Set(d.calls.filter(isValidDate))] : []; arrived('ir', s); }, fail));
+ unsubs.push(DB.collection(R('eps')).onSnapshot(q => { state.eps = q.docs.map(d => normEp({...clone(d.data()), id:d.id})); arrived('eps', q); }, fail));
+}
+async function enter(phrase){
+ unsubs.forEach(f => { try { f(); } catch(e){} }); unsubs = [];
+ connNote = ''; connErr = false; CFG_EXISTS = true;
+ state = {...defaultConfig(), irCalls:[], eps:[]};
+ PHRASE = phrase; ROOM = await roomOf(phrase);
+ try { localStorage.setItem(PKEY, phrase); } catch(e){}
+ MODE = 'shared'; subscribe(); render();
+}
+async function gateEnter(){
+ const p = val('gate-phrase');
+ if(p.length < 8){ gateErr = '合言葉は8文字以上にしてください。'; render(); return; }
+ gateErr = ''; await enter(p);
+}
+function leave(){
+ unsubs.forEach(f => { try { f(); } catch(e){} }); unsubs = [];
+ try { localStorage.removeItem(PKEY); } catch(e){}
+ PHRASE = ''; ROOM = ''; MODE = 'gate'; render();
 }
 
 async function initStore(){
@@ -357,28 +354,14 @@ async function initStore(){
   return;
  }
  firebase.initializeApp(FB_CFG);
- AUTH = firebase.auth(); DB = firebase.firestore();
- AUTH.getRedirectResult().catch(e => { loginErr = authErrMsg(e); render(); });
- AUTH.onAuthStateChanged(async u => {
-  unsubs.forEach(f => { try { f(); } catch(e){} }); unsubs = [];
-  USER = u; ME = null; IS_ADMIN = false; GTOKEN = null; MEMBERS = []; connNote = ''; connErr = false;
-  state = {...defaultConfig(), irCalls:[], eps:[]};
-  if(!u){ MODE = 'login'; render(); return; }
-  MODE = 'loading'; render();
-  const email = str(u.email).toLowerCase();
-  try {
-   const ref = DB.collection('members').doc(email);
-   let s = await ref.get();
-   if(!s.exists){
-    // まだ誰も登録していない状態で「管理者(セキュリティルールに書いたメール)」がログインしたときだけ成功する
-    try { await ref.set({role:'admin', name:str(u.displayName), addedBy:email, addedAt:firebase.firestore.FieldValue.serverTimestamp()}); s = await ref.get(); }
-    catch(e){ MODE = 'denied'; render(); return; }
-   }
-   const d = s.data() || {};
-   ME = {email, name:str(d.name), role:d.role==='admin'?'admin':'member'}; IS_ADMIN = ME.role==='admin';
-  } catch(e){ MODE = 'denied'; render(); return; }
-  MODE = 'shared'; subscribe(); render();
- });
+ DB = firebase.firestore();
+ // リンクに「#k=合言葉」が付いていれば、それを使って自動で入る(アドレスバーからは消す)
+ let fromUrl = '';
+ const m = location.hash.match(/[#&]k=([^&]+)/);
+ if(m){ try { fromUrl = decodeURIComponent(m[1]); } catch(e){} history.replaceState(null, '', location.pathname + location.search); }
+ let saved = ''; try { saved = localStorage.getItem(PKEY) || ''; } catch(e){}
+ const p = fromUrl || saved;
+ if(p.length >= 8) await enter(p); else { MODE = 'gate'; render(); }
 }
 
 const T0 = todayStr();
@@ -441,32 +424,28 @@ function filterNote(){ const f = [F.team&&`チーム:${F.team}`, F.owner&&`担�
 function banner(){
  if(MODE==='shared'){
   if(connNote) return `<div class="banner ${connErr?'er':'wr'}">${esc(connNote)}</div>`;
+  if(!connNote && !CFG_EXISTS && !state.eps.length) return '<div class="banner wr">この合言葉のカレンダーはまだ空です。最初の1人ならこのまま使い始めてください。ほかの人がもう使っているはずなら、合言葉の打ち間違いかもしれません(右上「合言葉を変える」)。</div>';
   return '';
  }
  return '<div class="banner wr">お試しモード:データはこのブラウザだけに保存されています。全員で共有するには、手順書に沿って config.js に Firebase の設定を書き込んでください。</div>';
 }
 function whoHtml(){
  if(MODE==='local') return '<span class="muted">お試しモード</span>';
- if(!USER) return '';
- return `<span class="muted" title="${esc(USER.email)}">${esc(ME && ME.name ? ME.name : USER.email)}${IS_ADMIN?'(管理者)':''}</span><button class="btn sm" data-act="logout">ログアウト</button>`;
+ if(MODE!=='shared') return '';
+ return `<button class="btn sm" data-act="copyInvite">招待リンクをコピー</button><button class="btn sm" data-act="leave">合言葉を変える</button>`;
 }
 function gateHtml(){
- if(MODE==='login') return `<div class="card gate"><h2>ログインしてください</h2>
-  <p>このカレンダーは OGX メンバー専用です。登録された Google アカウントでログインすると、全員で同じカレンダーを見たり編集したりできます。</p>
-  <button class="btn pri big" data-act="login">Google でログイン</button>
-  ${loginErr?`<div class="banner er" style="margin-top:12px">${loginErr}</div>`:''}</div>`;
- if(MODE==='denied') return `<div class="card gate"><h2>まだメンバー登録されていません</h2>
-  <p>ログイン中のアカウント:<b>${esc(USER ? USER.email : '')}</b></p>
-  <p>このメールアドレスを管理者に伝えて、「メンバー」タブで追加してもらってください。追加されたら、このページを開き直すと使えるようになります。</p>
-  <div class="row"><button class="btn" data-act="reload">開き直す</button><button class="btn" data-act="logout">別のアカウントでログイン</button></div></div>`;
+ if(MODE==='gate') return `<div class="card gate"><h2>合言葉を入れてください</h2>
+  <p>チームで決めた合言葉を入れると、全員で同じカレンダーを見たり編集したりできます。ログインは不要です。</p>
+  <p class="muted">招待リンク(URL の最後に「#k=…」が付いたもの)から開いた場合は、自動で入ります。いちど入れると、このブラウザでは次回から入力不要です。</p>
+  <div class="row"><input id="gate-phrase" type="password" autocomplete="off" placeholder="合言葉(8文字以上)" style="flex:1;min-width:200px"><button class="btn pri" data-act="gateEnter">入る</button></div>
+  ${gateErr?`<div class="banner er" style="margin-top:12px">${esc(gateErr)}</div>`:''}</div>`;
  return '<div class="card loading">データを読み込んでいます…</div>';
 }
 function render(){
  if(F.ep && !epById(F.ep)) F.ep = '';
  document.getElementById('who').innerHTML = whoHtml();
  const nav = document.getElementById('nav'); nav.style.display = (MODE==='shared' || MODE==='local') ? '' : 'none';
- nav.querySelector('[data-tab="mem"]').style.display = MODE==='shared' ? '' : 'none';
- if(ui.tab==='mem' && MODE!=='shared') ui.tab = 'cal';
  document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===ui.tab));
  const main = document.getElementById('main');
  if(MODE!=='shared' && MODE!=='local'){ main.innerHTML = gateHtml(); return; }
@@ -479,17 +458,15 @@ const VKEY = 'ogx-opcal-view';
 const V = (() => { try { const v = JSON.parse(localStorage.getItem(VKEY)); if(v && ['all','team','person'].includes(v.mode)) return v; } catch(e){} return {mode:'all', team:'', person:''}; })();
 function applyView(){ F.team = V.mode==='team' ? V.team : ''; F.owner = V.mode==='person' ? V.person : ''; try { localStorage.setItem(VKEY, JSON.stringify(V)); } catch(e){} }
 applyView();
-function people(){ const s = new Set(owners()); MEMBERS.forEach(m => m.name && s.add(m.name)); return [...s].sort((a,b)=>a.localeCompare(b,'ja')); }
+function people(){ const s = new Set(owners()); return [...s].sort((a,b)=>a.localeCompare(b,'ja')); }
 function filterBar(){
  const opt = (v, cur, label) => `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(label)}</option>`;
  const seg = (m, label) => `<button class="seg${V.mode===m?' on':''}" data-act="vMode" data-m="${m}">${label}</button>`;
  let sub = '';
  if(V.mode==='team') sub = `<select data-chg="vTeam">${opt('',V.team,'チームを選ぶ')}${teams().map(t=>opt(t,V.team,t)).join('')}</select>`;
  if(V.mode==='person') sub = `<select data-chg="vPerson">${opt('',V.person,'担当メンバーを選ぶ')}${people().map(t=>opt(t,V.person,t)).join('')}</select>`;
- const myName = ME && ME.name;
  return `<div class="filters">
   <label>表示</label><span class="segs">${seg('all','全員')}${seg('team','チーム別')}${seg('person','個人別')}</span>${sub}
-  ${myName && !(V.mode==='person' && V.person===myName) ? `<button class="btn sm" data-act="vMe">自分の担当だけ</button>` : ''}
   <label style="margin-left:8px">渡航者</label><select data-chg="fEp">${opt('',F.ep,'すべて')}${state.eps.filter(e=>(!F.team||e.team===F.team)&&(!F.owner||e.owner===F.owner)).map(e=>opt(e.id,F.ep,e.name)).join('')}</select>
   ${(V.mode!=='all'||F.ep)?'<button class="btn sm" data-act="fClear">全員に戻す</button>':''}
  </div>`;
@@ -548,7 +525,7 @@ VIEWS.cal = function(){
    <div class="ttl">${y}年${m}月</div>
    <button class="btn" data-act="mNext" ${idx>=MONTHS.length-1?'disabled':''}>次月 ▶</button>
    ${MONTHS.includes(today.slice(0,7))?'<button class="btn sm" data-act="mToday">今月</button>':''}
-   <button class="btn sm" data-act="toGcal">📅 自分の Google カレンダーへ</button>
+   <button class="btn sm" data-act="toGcal">📅 Googleカレンダー用に書き出す</button>
    <span class="muted" style="margin-left:auto">IRコール:今月 <b>${irN}回</b>(週あたり約 ${perWeek.toFixed(1)}回/目標 週3〜4回)
     <span class="${perWeek>=3?'ok':'ng'}">${perWeek>=3?'達成ペース':'不足'}</span></span>
   </div>
@@ -721,7 +698,7 @@ VIEWS.set = function(){
 
 VIEWS.data = function(){
  const icsBtn = '<button class="btn" data-act="exportIcs">.ics を書き出す</button>';
- return gcCard() + `<div class="card"><h2>バックアップ・共有用(JSON)</h2><p class="muted">${MODE==='shared'?'このページは全員で同じデータを使っています。JSON はバックアップや別の場所への移行に使ってください(読み込み・初期化は管理者のみ)。':'メンバー間で共有するときは JSON を書き出して渡し、受け取った人が読み込みます。'}<b>読み込むと今のデータは${MODE==='shared'?'全員分':''}置き換わります。</b></p>
+ return `<div class="card"><h2>バックアップ・共有用(JSON)</h2><p class="muted">${MODE==='shared'?'このページは全員で同じデータを使っています。JSON はバックアップや別の場所への移行に使ってください。':'メンバー間で共有するときは JSON を書き出して渡し、受け取った人が読み込みます。'}<b>読み込むと今のデータは${MODE==='shared'?'全員分':''}置き換わります。</b></p>
   <div class="row"><button class="btn pri" data-act="exportJson">JSON を書き出す</button><button class="btn" data-act="copyJson">JSON をコピー</button>
    <label class="btn" style="cursor:pointer">JSON を読み込む<input type="file" accept=".json,application/json" data-chg="importFile" style="display:none"></label></div></div>
  <div class="card"><h2>カレンダー・表計算向け</h2><p class="muted">以下は上の絞り込み条件(${esc(filterNote())})で出力します。</p>
@@ -783,175 +760,6 @@ function exportGcal(){
  offerFile(`ogx-google-calendar-${stamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
 }
 
-/* ================= Google カレンダー連携(各自の Google アカウントで、専用カレンダー「OGX オペレーション」に反映) =================
-   ・スコープは calendar.app.created(このアプリが作ったカレンダーだけを操作できる。ふだんの予定には触れない)
-   ・予定には非公開の拡張プロパティ(ogxKey など)を付け、次回はカレンダー側の予定と比べて差分だけを反映する */
-const GSCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
-const GAPI = 'https://www.googleapis.com/calendar/v3';
-const GCAL_NAME = 'OGX オペレーション';
-let GTOKEN = null, GTOKEN_AT = 0;
-const GC = {ops:true, dates:true, events:false, jobs:false, prune:true, remind:true, busy:false, msg:'', cls:''};
-function gcEntries(){
- const E = [], eps = filteredEps();
- if(GC.ops) itemsFor(eps).forEach(i => { if(i.status==='done') return;
-  E.push({key:`op-${i.ep.id}-${i.op.id}`, cat:'op', ep:i.ep.id, date:i.date, remind:GC.remind, title:`【期限】${i.ep.name}:${i.op.name}${i.op.must?'(必須)':''}`,
-   desc:`チーム:${i.ep.team}\n担当:${i.ep.owner||'未設定'}\n期限:${opLabel(i.op)}\n出国日:${i.ep.depart}${i.ep.ret?'/帰国日:'+i.ep.ret:''}${i.op.note?'\nメモ:'+i.op.note:''}\n\nOGX オペレーションカレンダーから追加`}); });
- if(GC.dates) eps.forEach(ep => {
-  if(isValidDate(ep.depart)) E.push({key:`dep-${ep.id}`, cat:'date', ep:ep.id, date:ep.depart, title:`✈ 出国 ${ep.name}`, desc:`${ep.team}/${ep.country}/${ep.op}`});
-  if(isValidDate(ep.ret)) E.push({key:`ret-${ep.id}`, cat:'date', ep:ep.id, date:ep.ret, title:`🏠 帰国 ${ep.name}`, desc:ep.team}); });
- if(GC.events) state.events.forEach(ev => { if(isValidDate(ev.date)) E.push({key:`ev-${ev.id}`, cat:'ev', date:ev.date, time:ev.time, title:evTitle(ev), desc:'OGX 固定イベント'}); });
- if(GC.jobs) state.jobMeetings.forEach(j => { if(F.team && j.team!==F.team) return; let d = RANGE_START; while(wdOf(d)!==j.weekday) d = addDays(d,1);
-  E.push({key:`jm-${j.id}`, cat:'jm', team:j.team, date:d, time:j.time||'21:00', weekly:true, title:`job会 ${j.team}`, desc:'毎週の job 会(2027/5/31まで)'}); });
- return E;
-}
-function gcSig(e){ const s = [e.date, e.time||'', e.title, e.desc||'', e.weekly?'w':'', e.remind?'r':''].join('|'); let h = 5381; for(let i=0;i<s.length;i++) h = ((h*33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) + s.length.toString(36); }
-function gcInScope(r){
- if(r.cat==='op' || r.cat==='date'){ const ep = epById(r.ep); if(!ep) return true; return filteredEps().includes(ep) && (r.cat==='op' ? GC.ops : GC.dates); }
- if(r.cat==='ev') return GC.events || !state.events.some(ev => `ev-${ev.id}`===r.key);
- if(r.cat==='jm') return (GC.jobs && (!F.team || r.team===F.team)) || !state.jobMeetings.some(j => `jm-${j.id}`===r.key);
- return false;
-}
-function gcBody(e){
- const b = {summary:e.title, description:e.desc||'', extendedProperties:{private:{ogxApp:'opcal', ogxKey:e.key, ogxSig:gcSig(e), ogxCat:e.cat, ogxEp:e.ep||'', ogxTeam:e.team||''}}};
- if(e.time){ const en = endOf(e.date, e.time); b.start = {dateTime:`${e.date}T${e.time}:00`, timeZone:'Asia/Tokyo'}; b.end = {dateTime:`${en.date}T${en.time}:00`, timeZone:'Asia/Tokyo'}; }
- else { b.start = {date:e.date}; b.end = {date:addDays(e.date,1)}; }
- if(e.weekly) b.recurrence = [`RRULE:FREQ=WEEKLY;UNTIL=${RANGE_END.replace(/-/g,'')}T145959Z`];
- b.reminders = e.remind ? {useDefault:false, overrides:[{method:'popup', minutes:900}]} : {useDefault:false}; // 終日予定の 900 分前 = 前日 9:00
- return b;
-}
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function gToken(){
- if(GTOKEN && Date.now() - GTOKEN_AT < 50*60000) return GTOKEN;
- const p = new firebase.auth.GoogleAuthProvider(); p.addScope(GSCOPE);
- if(USER && USER.email) p.setCustomParameters({login_hint:USER.email});
- const r = await USER.reauthenticateWithPopup(p);
- const t = r && r.credential && r.credential.accessToken;
- if(!t) throw {code:'no-token'};
- GTOKEN = t; GTOKEN_AT = Date.now(); return t;
-}
-async function gFetch(method, path, body, tries){
- tries = tries || 0;
- const res = await fetch(GAPI + path, {method, headers:{Authorization:'Bearer ' + GTOKEN, ...(body ? {'Content-Type':'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined});
- if(res.status===204) return null;
- if(res.ok) return res.json();
- let err = {}; try { err = (await res.json()).error || {}; } catch(e){}
- const reason = JSON.stringify(err.errors || err.details || '') + ' ' + str(err.status) + ' ' + str(err.message);
- if((res.status===429 || (res.status===403 && /rate|quota/i.test(reason))) && tries < 5){ await sleep(800 * 2**tries); return gFetch(method, path, body, tries+1); }
- if(res.status===401) GTOKEN = null;
- throw {code:'http', status:res.status, reason, message:str(err.message) || res.statusText};
-}
-function gcErr(e){
- const c = e && e.code;
- if(c && String(c).startsWith('auth/')) return authErrMsg(e);
- if(c==='no-token') return 'Google カレンダーの利用許可を受け取れませんでした。もう一度押して、許可の画面で「続行」または「許可」を選んでください。';
- if(c==='http'){
-  if(/accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(e.reason)) return 'Google Calendar API が有効になっていません(管理者向け:手順書の「Google Calendar API を有効にする」)。';
-  if(e.status===401) return 'Google の許可の期限が切れました。もう一度押してください。';
-  if(e.status===403) return 'Google カレンダーへの書き込みが許可されませんでした。もう一度押して、許可の画面でカレンダーのチェックを入れてください。(' + esc(e.message).slice(0,120) + ')';
-  return 'Google カレンダーがエラーを返しました(' + e.status + ':' + esc(e.message).slice(0,160) + ')';
- }
- return '通信エラーで中断しました。もう一度押すと続きから反映します。';
-}
-async function gcCalId(create){
- const ref = DB.doc('users/' + USER.uid);
- let calId = null;
- try { const s = await ref.get(); calId = s.exists ? str(s.data().calId) || null : null; } catch(e){}
- if(calId){ try { await gFetch('GET', `/calendars/${encodeURIComponent(calId)}`); } catch(e){ if(e.code==='http' && [403,404,410].includes(e.status)) calId = null; else throw e; } }
- if(!calId && create){
-  const c = await gFetch('POST', '/calendars', {summary:GCAL_NAME, description:'OGX オペレーションカレンダーが自動で予定を追加します。手で編集した内容は次の反映で上書きされることがあります。', timeZone:'Asia/Tokyo'});
-  calId = c.id; await ref.set({calId}, {merge:true});
- }
- return calId;
-}
-async function gcList(calId){
- const out = []; let pt = '';
- do {
-  const q = new URLSearchParams({maxResults:'2500', privateExtendedProperty:'ogxApp=opcal', showDeleted:'false'}); if(pt) q.set('pageToken', pt);
-  const r = await gFetch('GET', `/calendars/${encodeURIComponent(calId)}/events?${q}`);
-  (r.items || []).forEach(ev => { const p = (ev.extendedProperties && ev.extendedProperties.private) || {}; if(p.ogxKey) out.push({id:ev.id, key:p.ogxKey, sig:p.ogxSig||'', cat:p.ogxCat||'', ep:p.ogxEp||'', team:p.ogxTeam||''}); });
-  pt = r.nextPageToken || '';
- } while(pt);
- return out;
-}
-function gcSetMsg(msg, cls){ GC.msg = msg; GC.cls = cls || ''; const el = document.getElementById('gc-msg'); if(el){ el.innerHTML = msg; el.className = 'banner ' + (cls || 'sh'); el.style.display = msg ? '' : 'none'; } }
-async function gcSync(){
- if(GC.busy || MODE!=='shared') return;
- GC.busy = true; render();
- let done = 0, total = 0;
- try {
-  gcSetMsg('Google の許可を確認しています…(初回は許可の画面が出ます)', 'sh');
-  await gToken(); // ボタンを押した直後にポップアップを出す(ブロックされないように)
-  gcSetMsg('あなたの Google カレンダーを確認しています…', 'sh');
-  const calId = await gcCalId(true);
-  const have = await gcList(calId), E = gcEntries(), want = new Map(E.map(e => [e.key, e]));
-  const byKey = new Map(), dups = [];
-  have.forEach(h => { if(byKey.has(h.key)) dups.push(h); else byKey.set(h.key, h); });
-  const add = E.filter(e => !byKey.has(e.key)), upd = E.filter(e => byKey.has(e.key) && byKey.get(e.key).sig !== gcSig(e));
-  const del = [...dups, ...(GC.prune ? [...byKey.values()].filter(h => !want.has(h.key) && gcInScope(h)) : [])];
-  total = add.length + upd.length + del.length;
-  if(!total){ gcSetMsg(`Google カレンダー「${GCAL_NAME}」はすでに最新の状態です。`, 'sh'); return; }
-  GC.busy = false;
-  if(!await ask(`あなたの Google カレンダー「${GCAL_NAME}」に反映します。\n\n追加 ${add.length}件/更新 ${upd.length}件/削除 ${del.length}件\n対象:${filterNote()}\n\n件数が多いと1〜2分かかります。途中でページを閉じないでください。`, '反映する')){ gcSetMsg('', ''); return; }
-  GC.busy = true; render();
-  const tick = () => gcSetMsg(`反映中… ${done}/${total}`, 'sh'); tick();
-  const base = `/calendars/${encodeURIComponent(calId)}/events`;
-  for(const h of del){ try { await gFetch('DELETE', `${base}/${encodeURIComponent(h.id)}`); } catch(e){ if(!(e.code==='http' && [404,410].includes(e.status))) throw e; } done++; tick(); await sleep(60); }
-  for(const e of upd){ await gFetch('PUT', `${base}/${encodeURIComponent(byKey.get(e.key).id)}`, gcBody(e)); done++; tick(); await sleep(60); }
-  for(const e of add){ await gFetch('POST', base, gcBody(e)); done++; tick(); await sleep(60); }
-  GC.msg = `反映しました:追加 ${add.length}件/更新 ${upd.length}件/削除 ${del.length}件(Google カレンダー「${GCAL_NAME}」)`; GC.cls = 'sh';
- } catch(e){ GC.msg = gcErr(e) + (total ? `(${done}/${total}件は反映済み)` : ''); GC.cls = 'er'; }
- finally { GC.busy = false; render(); }
-}
-async function gcRemoveCal(){
- if(GC.busy || MODE!=='shared') return;
- if(!await ask(`あなたの Google カレンダーから「${GCAL_NAME}」カレンダーを丸ごと削除しますか?\n(このアプリが追加した予定だけが消えます。ほかの予定やメンバーには影響しません)`, '削除する')) return;
- GC.busy = true; render();
- try { await gToken(); const calId = await gcCalId(false);
-  if(calId) await gFetch('DELETE', `/calendars/${encodeURIComponent(calId)}`);
-  await DB.doc('users/' + USER.uid).set({calId:''}, {merge:true});
-  GC.msg = calId ? `「${GCAL_NAME}」カレンダーを削除しました。` : '削除するカレンダーはありませんでした。'; GC.cls = 'sh';
- } catch(e){ GC.msg = gcErr(e); GC.cls = 'er'; }
- finally { GC.busy = false; render(); }
-}
-function gcCard(){
- if(MODE!=='shared') return `<div class="card"><h2>📅 Google カレンダーに反映</h2><p class="muted">お試しモードでは使えません。Firebase の設定後、ログインすると、自分の Google カレンダーに直接反映できます。それまでは下の「Google カレンダー用 CSV」や「.ics」を使ってください。</p></div>`;
- const n = gcEntries().length;
- const chk = (k, label) => `<label class="muted" style="white-space:nowrap"><input type="checkbox" data-chg="gcOpt" data-k="${k}" ${GC[k]?'checked':''} ${GC.busy?'disabled':''}> ${label}</label>`;
- return `<div class="card" id="gc-card"><h2>📅 自分の Google カレンダーに反映</h2>
-  <p class="muted">いま選んでいる表示(${esc(filterNote())})の予定を、あなたの Google カレンダーに作られる専用カレンダー「${GCAL_NAME}」に追加します。もう一度押すと、変わった期限だけを更新し、完了にした項目は消します。ふだんの予定やほかのメンバーのカレンダーには触れません。</p>
-  <div class="row">${chk('ops','未完了の期限')}${chk('dates','出国日・帰国日')}${chk('events','固定イベント')}${chk('jobs','job会(毎週)')}</div>
-  <div class="row" style="margin-top:6px">${chk('remind','期限の前日9:00に通知')}${chk('prune','完了・削除した項目の予定を消す')}</div>
-  <div class="row" style="margin-top:10px"><button class="btn pri" data-act="gcSync" ${GC.busy?'disabled':''}>${GC.busy?'反映中…':`Google カレンダーに反映(対象 ${n}件)`}</button>
-   <button class="btn sm dng" data-act="gcRemoveCal" style="margin-left:auto" ${GC.busy?'disabled':''}>専用カレンダーを削除</button></div>
-  <p id="gc-msg" class="banner ${GC.cls||'sh'}" style="margin-top:10px;${GC.msg?'':'display:none'}">${GC.msg}</p>
-  <p class="muted">初回は Google から「カレンダーの作成と管理」の許可を求められます。「このアプリは Google で確認されていません」と出た場合は「詳細」→「(安全ではないページ)に移動」で進めます(管理者が作った内部向けアプリのため)。期限が変わったら、もう一度このボタンを押してください(自動では反映されません)。</p></div>`;
-}
-
-VIEWS.mem = function(){
- const me = ME || {};
- const rows = MEMBERS.map(m => `<tr><td>${esc(m.email)}${m.email===me.email?' <span class="muted">(あなた)</span>':''}</td><td>${esc(m.name)||'<span class="muted">未設定</span>'}</td>
-  <td>${IS_ADMIN && m.email!==me.email ? `<select data-chg="memRole" data-e="${esc(m.email)}"><option value="member"${m.role==='member'?' selected':''}>メンバー</option><option value="admin"${m.role==='admin'?' selected':''}>管理者</option></select>` : (m.role==='admin'?'管理者':'メンバー')}</td>
-  <td>${IS_ADMIN && m.email!==me.email ? `<button class="btn sm dng" data-act="memDel" data-e="${esc(m.email)}">外す</button>` : ''}</td></tr>`).join('');
- return `<div class="card"><h2>あなたの名前</h2>
-  <p class="muted">渡航者の「担当メンバー(で担)」欄と同じ書き方にすると、「自分の担当だけ」ボタンで自分の担当分をすぐ表示できます。</p>
-  <div class="row"><input id="my-name" value="${esc(me.name||'')}" placeholder="例:佐藤"><button class="btn pri" data-act="myName">保存</button></div></div>
- <div class="card"><h2>メンバー(${MEMBERS.length}人)</h2>
-  <p class="muted">ここに登録された Google アカウントだけが、このカレンダーを見たり編集したりできます。${IS_ADMIN?'':'追加・削除は管理者だけができます。'}</p>
-  ${IS_ADMIN?`<div class="row" style="margin-bottom:10px"><input id="new-mem-email" type="email" placeholder="追加する Gmail / Google アカウントのアドレス" style="flex:1;min-width:220px"><input id="new-mem-name" placeholder="名前(任意)" style="width:140px">
-   <select id="new-mem-role"><option value="member">メンバー</option><option value="admin">管理者</option></select><button class="btn pri" data-act="memAdd">追加</button></div>`:''}
-  <div class="tbl-wrap"><table><thead><tr><th>メールアドレス</th><th>名前</th><th>権限</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
-  <p class="muted">追加した人には、このページの URL を伝えてください。その人が追加したアドレスの Google アカウントでログインすると使えます。</p></div>`;
-};
-const MEM_ACT = {
- async myName(){ const n = val('my-name'); try { await DB.collection('members').doc(ME.email).update({name:n}); ME.name = n; toast('保存しました'); render(); } catch(e){ onWriteErr(e); } },
- async memAdd(){ const em = val('new-mem-email').toLowerCase(), nm = val('new-mem-name'), role = val('new-mem-role')==='admin'?'admin':'member';
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return toast('メールアドレスを正しく入力してください');
-  if(MEMBERS.some(m=>m.email===em)) return toast('すでに登録されています');
-  try { await DB.collection('members').doc(em).set({role, name:nm, addedBy:ME.email, addedAt:firebase.firestore.FieldValue.serverTimestamp()}); toast(`${em} を追加しました`); } catch(e){ onWriteErr(e); } },
- async memDel(t){ const em = t.dataset.e; if(!await ask(`${em} をメンバーから外しますか?\nこの人はカレンダーを見られなくなります。`, '外す')) return;
-  try { await DB.collection('members').doc(em).delete(); toast('外しました'); } catch(e){ onWriteErr(e); } }
-};
-
 /* ================= 操作 ================= */
 function val(id){ const el = document.getElementById(id); return el ? el.value.trim() : ''; }
 function move(arr, id, dir){ const i = arr.findIndex(x=>x.id===id), j = i + dir; if(i<0 || j<0 || j>=arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; }
@@ -964,12 +772,11 @@ async function replaceAll(next){
  ui.repText = null; ui.editId = null; render();
 }
 const ACT = {
- ...MEM_ACT,
- login(){ login(); }, logout(){ logout(); }, reload(){ location.reload(); },
- vMode(t){ V.mode = t.dataset.m; if(V.mode==='team' && !V.team) V.team = teams()[0] || ''; if(V.mode==='person' && !V.person) V.person = (ME && ME.name) || people()[0] || ''; F.ep = ''; applyView(); render(); },
- vMe(){ V.mode = 'person'; V.person = ME.name; F.ep = ''; applyView(); render(); },
+ reload(){ location.reload(); },
+ gateEnter(){ gateEnter(); }, leave(){ leave(); },
+ copyInvite(){ copyText(inviteUrl()); },
+ vMode(t){ V.mode = t.dataset.m; if(V.mode==='team' && !V.team) V.team = teams()[0] || ''; if(V.mode==='person' && !V.person) V.person = people()[0] || ''; F.ep = ''; applyView(); render(); },
  newEpOn(t){ ui.editId = null; ui.prefDepart = t.dataset.d; ui.tab = 'ep'; render(); window.scrollTo({top:0}); const n = document.getElementById('f-name'); if(n) n.focus(); },
- gcRemoveCal(){ gcRemoveCal(); },
  mPrev(){ const i = MONTHS.indexOf(ui.month); if(i>0){ ui.month = MONTHS[i-1]; ui.selDay = null; render(); } },
  mNext(){ const i = MONTHS.indexOf(ui.month); if(i<MONTHS.length-1){ ui.month = MONTHS[i+1]; ui.selDay = null; render(); } },
  mToday(){ ui.month = todayStr().slice(0,7); ui.selDay = todayStr(); render(); },
@@ -1018,18 +825,16 @@ const ACT = {
  exportJson(){ offerFile(`ogx-opcal-${stamp()}.json`, JSON.stringify({version:1, ...state}, null, 2), 'application/json'); },
  copyJson(){ copyText(JSON.stringify({version:1, ...state}, null, 2)); },
  exportCsv, exportGcal,
- gcSync(){ gcSync(); }, toGcal(){ ui.tab = 'data'; render(); window.scrollTo({top:0}); },
+ toGcal(){ ui.tab = 'data'; render(); window.scrollTo({top:0}); },
  exportIcs(){ offerFile(`ogx-operations-${stamp()}.ics`, buildIcs(), 'text/calendar;charset=utf-8'); },
  copyIcs(){ copyText(buildIcs()); },
  async resetAll(){
-  if(MODE==='shared' && !IS_ADMIN) return toast('初期化は管理者だけができます');
   if(!await ask(MODE==='shared' ? '共有データをすべて消して初期設定に戻しますか?全員の画面から渡航者・IRコールが消え、元に戻せません。先に JSON を書き出しておくと安全です。' : 'すべてのデータを消して初期状態に戻しますか?元に戻せません。先に JSON を書き出しておくと安全です。', '初期化する')) return;
   await replaceAll(MODE==='shared' ? {...defaultConfig(), irCalls:[], eps:[]} : defaultLocalState()); toast('初期化しました');
  }
 };
 const CHG = {
  vTeam(t){ V.team = t.value; F.ep = ''; applyView(); render(); }, vPerson(t){ V.person = t.value; F.ep = ''; applyView(); render(); }, fEp(t){ F.ep = t.value; render(); },
- async memRole(t){ try { await DB.collection('members').doc(t.dataset.e).update({role: t.value==='admin'?'admin':'member'}); toast('権限を変更しました'); } catch(e){ onWriteErr(e); render(); } },
  status(t){ setStatus(t.dataset.ep, t.dataset.op, t.value); },
  showDone(t){ ui.showDone = t.checked; render(); },
  tlEp(t){ ui.tlEp = t.value; render(); },
@@ -1047,12 +852,10 @@ const CHG = {
  irTarget(t){ state.irTarget = Math.max(0, Number(t.value)||0); saveCfg(); render(); },
  teamColor(t){ state.teamColors[t.dataset.team] = t.value; saveCfg(); render(); },
  icsDone(t){ ui.icsDone = t.checked; },
- gcOpt(t){ if(t.dataset.k in GC){ GC[t.dataset.k] = t.checked; render(); } },
  importFile(t){
   const f = t.files && t.files[0]; if(!f) return;
   const r = new FileReader();
   r.onload = async () => {
-   if(MODE==='shared' && !IS_ADMIN){ toast('読み込みは管理者だけができます'); return; }
    let d; try { d = JSON.parse(r.result); if(!d || !Array.isArray(d.eps) || !Array.isArray(d.opDefs)) throw 0; } catch(e){ toast('読み込めませんでした(この画面で書き出した JSON を選んでください)'); return; }
    if(!await ask(`「${f.name}」を読み込みます(渡航者 ${d.eps.length}人)。\n今のデータは${MODE==='shared'?'全員分':''}置き換わります。よろしいですか?`, '読み込む')) return;
    await replaceAll(normAll(d)); toast('読み込みました');
@@ -1064,7 +867,7 @@ document.getElementById('nav').addEventListener('click', e => { const b = e.targ
 document.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if(t && ACT[t.dataset.act] && !t.disabled) ACT[t.dataset.act](t, e); });
 document.addEventListener('change', e => { const t = e.target.closest('[data-chg]'); if(t && CHG[t.dataset.chg]) CHG[t.dataset.chg](t, e); });
 document.addEventListener('input', e => { if(e.target && (e.target.id==='f-depart' || e.target.id==='f-ret')) epPreview(); });
-document.addEventListener('keydown', e => { if(e.key==='Escape' && document.getElementById('modal').classList.contains('show')) document.getElementById('modal-no').click(); });
+document.addEventListener('keydown', e => { if(e.key==='Enter' && e.target && e.target.id==='gate-phrase'){ gateEnter(); return; } if(e.key==='Escape' && document.getElementById('modal').classList.contains('show')) document.getElementById('modal-no').click(); });
 render();
 initStore();
 }
