@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OGX オペレーションカレンダー</title>
+<style>
+/* VOICE: 実務ツール。落ち着いた業務用の画面
+   IDEA: 壁掛けの月間予定表+期限一覧
+   PICTURE: 月カレンダーそのもの
+   COLOUR and TYPE: 白地、アクセントの青、チーム色の付せん/システムフォント
+   LAYOUT: 上部タブ、1カラム、スマホでは縮小 */
+:root{color-scheme:light;--bg:#f5f6f8;--card:#fff;--line:#e1e4e8;--text:#1f2933;--muted:#6b7280;--accent:#037ef3;--red:#c53030;--redbg:#fdeaea;--yel:#975a16;--yelbg:#fdf5e1;--grn:#2f855a;--grnbg:#e6f4ea;}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Hiragino Sans","Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.5;overflow-x:clip}
+header{background:#fff;border-bottom:1px solid var(--line);padding:10px 16px 0;position:sticky;top:0;z-index:20}
+header h1{font-size:16px;margin:0 0 6px;font-weight:700}
+header h1 small{color:var(--muted);font-weight:400;margin-left:6px}
+nav{display:flex;gap:2px;overflow-x:auto}
+nav button{border:0;background:none;padding:10px 12px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+nav button.on{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+main{padding:14px;max-width:1200px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px;margin-bottom:14px}
+.card h2{font-size:15px;margin:0 0 10px}
+.card h3{font-size:14px;margin:14px 0 6px}
+.muted{color:var(--muted);font-size:12px}
+button.btn{font:inherit;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 12px;cursor:pointer;color:var(--text)}
+button.btn:hover{background:#f0f2f5}
+button.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+button.pri:hover{background:#026bd0}
+button.dng{color:var(--red);border-color:#f0c4c4}
+button.sm{padding:2px 8px;font-size:12px}
+button:disabled{opacity:.4;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+label.btn{display:inline-block;font:inherit;border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 12px}
+input,select,textarea{font:inherit;border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff;color:var(--text);max-width:100%}
+textarea{width:100%;font-family:ui-monospace,Consolas,"Yu Gothic UI",monospace;font-size:13px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.filters{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.filters label{font-size:12px;color:var(--muted)}
+.grid-form{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px}
+.grid-form label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
+.grid-form label input{color:var(--text)}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+th{font-size:12px;color:var(--muted);font-weight:600;background:#fafbfc}
+.tbl-wrap{overflow-x:auto}
+.tdot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:middle}
+/* calendar */
+.cal-head{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.cal-head .ttl{font-size:18px;font-weight:700;min-width:120px;text-align:center}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line);border-left:1px solid var(--line)}
+.cal .wh{font-size:12px;text-align:center;padding:4px;background:#fafbfc;border-right:1px solid var(--line);border-bottom:1px solid var(--line);color:var(--muted)}
+.cal .cell{min-height:96px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:3px;cursor:pointer;background:#fff;overflow:hidden;min-width:0}
+.cal .cell:hover{background:#f8fafc}
+.cal .cell.empty{background:#fafafa;cursor:default}
+.cal .cell.today{background:#eef6ff}
+.cal .cell.sel{outline:2px solid var(--accent);outline-offset:-2px}
+.dn{font-size:12px;font-weight:600;margin-bottom:2px}
+.sun{color:#c53030}.sat{color:#2b6cb0}
+.chip{font-size:11px;line-height:1.35;padding:1px 4px;margin-bottom:2px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip.op{border-left:3px solid var(--c);background:color-mix(in srgb,var(--c) 12%,#fff)}
+.chip.op.st-doing{background:color-mix(in srgb,var(--c) 28%,#fff)}
+.chip.op.st-done{color:#9aa5b1;text-decoration:line-through;background:#f4f5f7;border-left-color:#c9ced6}
+.chip.op.od{box-shadow:inset 0 0 0 1px var(--red)}
+.chip.ev{background:#4a5568;color:#fff}
+.chip.ev.ir{background:#805ad5}
+.chip.job{background:color-mix(in srgb,var(--c) 85%,#000);color:#fff}
+.chip.irc{background:#e9d8fd;color:#553c9a}
+.chip.dep{background:var(--c);color:#fff;font-weight:600}
+.chip.ret{border:1px dashed var(--c);color:var(--text)}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;margin-top:8px;color:var(--muted)}
+.day-detail .it{display:flex;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--line);flex-wrap:wrap}
+/* status */
+select.st{font-size:12px;padding:2px 4px}
+select.st-todo{background:#fff}
+select.st-doing{background:#fff7e0;border-color:#f0d58a}
+select.st-done{background:var(--grnbg);border-color:#a9d8b8}
+/* list classes */
+tr.c-over td{background:var(--redbg)}
+tr.c-soon td{background:var(--yelbg)}
+tr.c-done td{color:#9aa5b1}
+.badge{display:inline-block;font-size:11px;padding:1px 7px;border-radius:10px;font-weight:600;white-space:nowrap}
+.b-over{background:var(--red);color:#fff}
+.b-soon{background:#dd9a2b;color:#fff}
+.b-later{background:#e2e8f0;color:#4a5568}
+.b-done{background:var(--grnbg);color:var(--grn)}
+.b-must{background:#fff;color:var(--red);border:1px solid #f0b4b4}
+.sec-title{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-weight:700}
+/* timeline */
+.tl{position:relative;margin-left:8px;padding-left:20px;border-left:2px solid var(--line)}
+.tl .ti{position:relative;padding:6px 10px;margin-bottom:8px;border-radius:6px;background:#fff;border:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tl .ti::before{content:"";position:absolute;left:-27px;top:12px;width:12px;height:12px;border-radius:50%;background:var(--dot,#cbd2d9);border:2px solid #fff}
+.tl .ti.c-over{background:var(--redbg);--dot:var(--red)}
+.tl .ti.c-soon{background:var(--yelbg);--dot:#dd9a2b}
+.tl .ti.c-done{--dot:var(--grn);color:#9aa5b1}
+.tl .ti.dep{--dot:var(--accent);background:#eef6ff;font-weight:700}
+.tl .when{min-width:150px;font-weight:600}
+.progress{height:8px;background:#e2e8f0;border-radius:4px;overflow:hidden;margin:6px 0}
+.progress>div{height:100%;background:var(--grn)}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1f2933;color:#fff;padding:8px 16px;border-radius:6px;font-size:13px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:99;max-width:90vw}
+.toast.show{opacity:1}
+.ir-chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.ir-chips span{background:#f0ebfb;border-radius:12px;padding:1px 4px 1px 10px;font-size:12px}
+.ir-chips button{border:0;background:none;cursor:pointer;color:var(--muted)}
+.ok{color:var(--grn);font-weight:600}.ng{color:var(--red);font-weight:600}
+.banner{padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:13px}
+.banner.sh{background:#e8f2fe;color:#1e4e8c}.banner.lo{background:#eef0f3;color:#4a5568}.banner.wr{background:var(--yelbg);color:var(--yel)}.banner.er{background:var(--redbg);color:var(--red)}
+.modal{position:fixed;inset:0;background:rgba(15,23,42,.45);display:none;align-items:center;justify-content:center;z-index:50;padding:16px}
+.modal.show{display:flex}
+.modal .box{background:#fff;border-radius:10px;padding:18px;max-width:440px;width:100%;box-shadow:0 10px 30px rgba(0,0,0,.2)}
+.modal .msg{white-space:pre-wrap;margin:0 0 14px}
+.loading{padding:40px;text-align:center;color:var(--muted)}
+.hrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.hrow h1{flex:1}
+.who{display:flex;gap:8px;align-items:center;font-size:12px;margin-bottom:6px}
+.segs{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg{border:0;background:#fff;font:inherit;padding:5px 12px;cursor:pointer;color:var(--text);border-right:1px solid var(--line)}
+.seg:last-child{border-right:0}
+.seg.on{background:var(--accent);color:#fff;font-weight:600}
+.gate{max-width:520px;margin:40px auto;text-align:left}
+button.big{font-size:16px;padding:10px 20px}
+.preview{margin-top:12px}
+.preview h3{margin:6px 0}
+@media (max-width:700px){
+ main{padding:8px}
+ .card{padding:10px}
+ .cal .cell{min-height:64px;padding:2px}
+ .chip{font-size:9px;padding:0 2px}
+ .cal-head .ttl{font-size:16px}
+ th,td{padding:5px 4px;font-size:12px}
+ .tl .when{min-width:0;width:100%}
+ input,select,textarea{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+@media print{header nav,.filters,button{display:none!important}}
+</style>
+</head>
+<body>
+<header>
+ <div class="hrow"><h1>OGX オペレーションカレンダー<small>2026年11月〜2027年5月</small></h1><div id="who" class="who"></div></div>
+ <nav id="nav">
+  <button data-tab="cal">カレンダー</button>
+  <button data-tab="list">一覧</button>
+  <button data-tab="tl">タイムライン</button>
+  <button data-tab="ep">渡航者</button>
+  <button data-tab="rep">job会報告</button>
+  <button data-tab="set">設定</button>
+  <button data-tab="data">Googleカレンダー・出力</button>
+  <button data-tab="mem">メンバー</button>
+ </nav>
+</header>
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+<div class="modal" id="modal"><div class="box"><p class="msg" id="modal-msg"></p><div class="row" style="justify-content:flex-end"><button class="btn" id="modal-no">キャンセル</button><button class="btn pri" id="modal-ok">OK</button></div></div></div>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script>
+'use strict';
+{
+/* ================= 日付ユーティリティ(UTC の日単位で計算:タイムゾーン・夏時間の影響を受けない) ================= */
+/*DATE_UTILS_START*/
+const DAY_MS = 86400000;
+function pad(n){ return String(n).padStart(2,'0'); }
+function parseD(s){ const [y,m,d] = s.split('-').map(Number); return Date.UTC(y, m-1, d); }
+function fmtD(t){ const d = new Date(t); return d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate()); }
+function addDays(s, n){ return fmtD(parseD(s) + n*DAY_MS); }
+function diffDays(a, b){ return Math.round((parseD(a) - parseD(b)) / DAY_MS); } // a - b(日)
+function deadlineOf(depart, daysBefore){ return addDays(depart, -Number(daysBefore)); }
+function isValidDate(s){ return typeof s==='string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && fmtD(parseD(s)) === s; }
+function wdOf(s){ return new Date(parseD(s)).getUTCDay(); }
+function daysInMonth(y, m){ return new Date(Date.UTC(y, m, 0)).getUTCDate(); }
+/*DATE_UTILS_END*/
+function todayStr(){ const d = new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+const WD = ['日','月','火','水','木','金','土'];
+function jp(s){ if(!isValidDate(s)) return ''; const [y,m,d] = s.split('-').map(Number); return `${m}/${d}(${WD[wdOf(s)]})`; }
+function jpFull(s){ if(!isValidDate(s)) return ''; const [y,m,d] = s.split('-').map(Number); return `${y}/${m}/${d}(${WD[wdOf(s)]})`; }
+
+/* ================= 定数・初期データ ================= */
+const STORE_KEY = 'ogx-opcal-v1';
+const RANGE_START = '2026-11-01', RANGE_END = '2027-05-31';
+const MONTHS = ['2026-11','2026-12','2027-01','2027-02','2027-03','2027-04','2027-05'];
+const STATUS = {todo:'未着手', doing:'進行中', done:'完了'};
+const PALETTE = ['#2563eb','#db2777','#059669','#d97706','#7c3aed','#0891b2','#dc2626','#65a30d','#4f46e5','#c2410c'];
+const ID_RE = /^[A-Za-z0-9_\-~:@+]{1,80}$/;
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function safeId(id){ return (typeof id==='string' && ID_RE.test(id)) ? id : uid(); }
+function str(v){ return v==null ? '' : String(v); }
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+
+/* 初期のオペレーション定義:「2627term OGX Delivery Operation Manual」(2026/09/19更新)の期限・プロセスタイムをもとに作成
+   base: dep=出国日 / ret=帰国日、dir: before=前 / after=後、must: マニュアルで必須(Must)とされている期限 */
+const O = (id, name, base, days, dir, must, note) => ({id, name, base, days, dir, must, note});
+const DEFAULT_OPS = [
+ O('m01','SRB合格・承諾書締結(Raise)','dep',59,'before',false,'Raise→Acceptedは12日以上(推奨12〜20日)。Sign up→Raiseは7日以上が必須(p.8-9)'),
+ O('m02','EXPAでEPM設定・Interviewedに変更','dep',58,'before',true,'Raise後24時間以内(デリバリー担当者)(p.25-26)'),
+ O('m03','YOP・SOSツール登録/参加規約全文確認','dep',55,'before',false,'マッチング開始前に完了(p.23, 27-31)'),
+ O('m04','渡航先精査フォーム提出(Apply前)','dep',52,'before',false,'Apply前に提出し、担当MCの確認をSlackで確認(p.36, 44)'),
+ O('m05','AN署名(Accepted)','dep',47,'before',false,'Accepted→Approvedは7日以内が必須。現地Accept後10日以内に署名しないと取り下げ(p.35-38)'),
+ O('m06','Match Check List 提出','dep',46,'before',false,'AN署名後すぐに提出し「#ogx_lc_着金確認依頼」で報告(p.49-50)'),
+ O('m07','Recommendation Letter 申請(VISA要の国)','dep',45,'before',false,'AN署名後のみ申請可。発行は申請から1週間以内(p.56)'),
+ O('m08','参加費振込','dep',43,'before',false,'請求メール後なるべく早く(7日以内)(p.49)'),
+ O('m09','マッチ承認(Approved)完了','dep',40,'before',true,'Approved→出国は40日以上が必須(条件付きで35日まで短縮可)(p.8-9, 55)'),
+ O('m10','航空券取得(Approved後)','dep',38,'before',false,'必ずApproved後に取得。危機管理ガイドラインのフライト条件を確認しMCに報告(p.57-58)'),
+ O('m11','VISA取得','dep',30,'before',false,'マニュアルに日数の指定なし。国ごとに余裕を持って設定(p.56)'),
+ O('m12','フライト情報(E-ticket)提出','dep',30,'before',true,'アシスタンスアプリで提出。推奨は35日前(p.59-60)'),
+ O('m13','保険料振込・保険証券の確認','dep',25,'before',false,'フライト情報提出後、自宅出発日/帰宅日をMCに報告→請求メール(p.61)'),
+ O('m14','OPS 参加','dep',21,'before',false,'日程はLCの開催に合わせて調整(p.73)'),
+ O('m15','現地AIESECへ渡航手段報告・E-ticket共有','dep',20,'before',true,'20日以上前まで。ピックアップ確認・EPMからTNMへの事前連絡も(p.59, 62)'),
+ O('m16','危機管理講習会(E-learning)受講','dep',14,'before',false,'必須受講コースをすべて受講。完成版提出(3日前)までに必須(p.66-67)'),
+ O('m17','トラブル対策コンサル','dep',14,'before',false,'渡航14日前までを推奨。ログをXDまたはデリバリー担当へ提出(p.67)'),
+ O('m18','出迎えの確定確認','dep',10,'before',false,'迎えに来られない場合は現地が10日前までに連絡する決まり(p.62)'),
+ O('m19','渡航先情報収集一覧 暫定版提出','dep',7,'before',true,'7日前までに一度必ず提出(最低でもフライト情報)。10日前に準備完了が目安(p.63)'),
+ O('m20','予防接種・たびレジ・海外対応SIM・SNSグループ作成','dep',7,'before',false,'完成版(3日前)のチェック項目。SNSグループは3種類(p.53, 66, 70-72)'),
+ O('m21','ピックアップ担当者と最終確認','dep',5,'before',false,'3〜5日前から現地ピックアップ担当者と連絡(p.78)'),
+ O('m22','渡航先情報収集一覧 完成版提出','dep',3,'before',true,'全項目の完了が必須。提出後に担当MCをメンション(p.63-66)'),
+ O('m23','出国前日:担当MCへフライト共有(Slack)','dep',1,'before',true,'翌日出国予定とフライト(日本時間)を共有(p.76)'),
+ O('m24','到着確認・出国管理一覧に記入','dep',0,'before',true,'合流写真確認後30分以内にGSS記入。予定時刻から1.5時間連絡がなければ事務局へ(p.76)'),
+ O('m25','帰国前日:担当MCへフライト共有(Slack)','ret',1,'before',true,'現地出発日の1日前(p.83)'),
+ O('m26','帰国報告(出国管理一覧)','ret',0,'before',true,'帰国後1.5時間以内(p.82, 84)'),
+ O('m27','修了コンサル','ret',7,'after',true,'帰国後1週間以内。書類3点の説明も(p.84)'),
+ O('m28','修了届(クラウドサイン)締結','ret',14,'after',true,'帰国から14日以内(p.84)'),
+ O('m29','Exchange Standards 回答','ret',30,'after',false,'帰国後1か月以内が目安。未回答だとCompleteにならない(p.85)'),
+ O('m30','Final Web Survey 回答','ret',42,'after',true,'帰国から3週間以上6週間以内に回答(p.84)')
+];
+function opDate(ep, op){ const b = op.base==='ret' ? ep.ret : ep.depart; if(!isValidDate(b)) return null; return addDays(b, op.dir==='after' ? op.days : -op.days); }
+function opLabel(op){ const w = op.base==='ret' ? '帰国' : '出国'; return op.days===0 ? `${w}当日` : `${w}${op.days}日${op.dir==='after'?'後':'前'}`; }
+function mustBadge(op){ return op.must ? '<span class="badge b-must" title="マニュアルで必須(Must)の期限">必須</span>' : ''; }
+function defaultConfig(){
+ return {
+  opDefs: DEFAULT_OPS.map(o => ({...o})),
+  events: [
+   {id:'ev1', date:'2026-11-24', time:'21:00', title:'OGXm', kind:''},
+   {id:'ev2', date:'2026-11-27', time:'', title:'オペレーションカレンダー試作の期限', kind:''},
+   {id:'ev3', date:'2026-12-12', time:'', title:'EPM 育成', kind:''},
+   {id:'ev4', date:'2027-03-31', time:'', title:'IR 連絡件数目標の締切', kind:'ir'}
+  ],
+  jobMeetings: [],
+  irTarget: 0,
+  teamColors: {}
+ };
+}
+function sampleData(){
+ return {
+  jobMeetings: [
+   {id:'jm1', team:'渡航チームA', weekday:3, time:'21:00', sample:true},
+   {id:'jm2', team:'渡航チームB', weekday:4, time:'21:00', sample:true},
+   {id:'jm3', team:'渡航チームC', weekday:0, time:'20:00', sample:true}
+  ],
+  eps: [
+   {id:'s1', sample:true, name:'山田 花子(サンプル)', team:'渡航チームA', owner:'佐藤', country:'ベトナム', op:'教育プロジェクト', depart:'2027-02-15', ret:'2027-03-22',
+    statuses:{m01:{s:'doing',at:'2026-11-23'}}},
+   {id:'s2', sample:true, name:'鈴木 一郎(サンプル)', team:'渡航チームB', owner:'田中', country:'インドネシア', op:'環境プロジェクト', depart:'2027-03-20', ret:'2027-04-30', statuses:{}},
+   {id:'s3', sample:true, name:'高橋 美咲(サンプル)', team:'渡航チームC', owner:'伊藤', country:'トルコ', op:'文化交流プロジェクト', depart:'2027-05-10', ret:'', statuses:{}}
+  ]
+ };
+}
+function defaultLocalState(){ const c = defaultConfig(), s = sampleData(); return {...c, jobMeetings:s.jobMeetings, irCalls:[], eps:s.eps}; }
+
+/* 外部(共有データ・読み込んだJSON)から来た値は必ずここで型をそろえる */
+function normCfg(d){
+ const def = defaultConfig(); d = d || {};
+ const opDefs = Array.isArray(d.opDefs) ? d.opDefs.filter(o=>o && typeof o==='object').map(o=>({id:safeId(o.id), name:str(o.name)||'(無題)', base:o.base==='ret'?'ret':'dep', days:Math.max(0, Math.round(Number(o.days))||0), dir:o.dir==='after'?'after':'before', must:!!o.must, note:str(o.note)})) : def.opDefs;
+ const events = Array.isArray(d.events) ? d.events.filter(e=>e && typeof e==='object').map(e=>({id:safeId(e.id), date:str(e.date), time:/^\d{2}:\d{2}$/.test(str(e.time))?str(e.time):'', title:str(e.title), kind:e.kind==='ir'?'ir':''})) : def.events;
+ const jobMeetings = Array.isArray(d.jobMeetings) ? d.jobMeetings.filter(j=>j && typeof j==='object').map(j=>({id:safeId(j.id), team:str(j.team), weekday:Math.min(6,Math.max(0,Number(j.weekday)||0)), time:/^\d{2}:\d{2}$/.test(str(j.time))?str(j.time):'', sample:!!j.sample})) : [];
+ const teamColors = {};
+ if(d.teamColors && typeof d.teamColors==='object') Object.entries(d.teamColors).forEach(([k,v]) => { if(/^#[0-9a-fA-F]{6}$/.test(str(v))) teamColors[k] = v; });
+ return {opDefs, events, jobMeetings, irTarget: Math.max(0, Number(d.irTarget)||0), teamColors};
+}
+function normEp(e){
+ const st = {};
+ if(e.statuses && typeof e.statuses==='object') Object.entries(e.statuses).forEach(([k,v]) => { if(v && STATUS[v.s]) st[k] = {s:v.s, at:isValidDate(v.at)?v.at:''}; });
+ return {id:safeId(e.id), sample:!!e.sample, name:str(e.name), team:str(e.team), owner:str(e.owner), country:str(e.country), op:str(e.op), depart:str(e.depart), ret:str(e.ret), statuses:st};
+}
+function normAll(d){
+ return {...normCfg(d), irCalls: Array.isArray(d.irCalls) ? [...new Set(d.irCalls.filter(isValidDate))] : [], eps: Array.isArray(d.eps) ? d.eps.filter(e=>e && typeof e==='object').map(normEp) : []};
+}
+
+/* ================= 保存先:Firebase(全員で共有) or このブラウザだけ(config.js 未設定のとき=お試しモード) ================= */
+const FB_CFG = window.OGX_FIREBASE_CONFIG || null;
+const CONFIGURED = !!(FB_CFG && typeof FB_CFG.apiKey==='string' && FB_CFG.apiKey && !/ここに|YOUR_|xxxx/i.test(FB_CFG.apiKey) && FB_CFG.projectId);
+let MODE = 'loading';           // 'shared' | 'local' | 'loading' | 'login' | 'denied'
+let DB = null, AUTH = null, USER = null, ME = null, IS_ADMIN = false, connNote = '', connErr = false, loginErr = '';
+let MEMBERS = [], unsubs = [];
+let state = {...defaultConfig(), irCalls:[], eps:[]};
+const wq = {};
+function enqueue(path, fn){ const p = (wq[path] || Promise.resolve()).then(fn).catch(onWriteErr); wq[path] = p; return p; }
+function onWriteErr(e){
+ const c = e && e.code;
+ if(c==='permission-denied') toast('保存する権限がありません(メンバー登録が外れた可能性があります)');
+ else if(c==='resource-exhausted') toast('無料枠の上限に達したため保存できませんでした。時間をおいて試してください');
+ else toast('保存に失敗しました。通信状況を確認してもう一度お試しください');
+}
+function saveLocal(){ try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch(e){} }
+function loadLocal(){ try { const raw = localStorage.getItem(STORE_KEY); if(raw) return normAll(JSON.parse(raw)); } catch(e){} return defaultLocalState(); }
+function cfgBody(){ return clone({opDefs:state.opDefs, events:state.events, jobMeetings:state.jobMeetings, irTarget:state.irTarget, teamColors:state.teamColors}); }
+function stampBy(){ return {updatedBy: ME ? ME.email : '', updatedAt: firebase.firestore.FieldValue.serverTimestamp()}; }
+function saveCfg(){ if(MODE==='shared'){ const b = {...cfgBody(), ...stampBy()}; enqueue('config/main', ()=>DB.doc('config/main').set(b)); } else saveLocal(); }
+function saveIr(){ if(MODE==='shared'){ const b = {calls: state.irCalls.slice(), ...stampBy()}; enqueue('config/ir', ()=>DB.doc('config/ir').set(b)); } else saveLocal(); }
+function saveEp(ep){ if(MODE==='shared'){ const {id, ...rest} = ep; const b = {...clone(rest), ...stampBy()}; enqueue('eps/'+id, ()=>DB.doc('eps/'+id).set(b)); } else saveLocal(); }
+function removeEp(id){ if(MODE==='shared') enqueue('eps/'+id, ()=>DB.doc('eps/'+id).delete()); else saveLocal(); }
+function saveStatus(ep, opId){ if(MODE==='shared'){ const v = clone(ep.statuses[opId]); enqueue('eps/'+ep.id, ()=>DB.doc('eps/'+ep.id).update(new firebase.firestore.FieldPath('statuses', opId), v)); } else saveLocal(); }
+
+let pendingRender = false;
+function editing(){ const a = document.activeElement; return a && a.closest && a.closest('#main') && (a.tagName==='TEXTAREA' || (a.tagName==='INPUT' && !['checkbox','radio','file','button','date','time','color'].includes(a.type))); }
+function scheduleRender(){ if(editing()) pendingRender = true; else render(); }
+document.addEventListener('focusout', () => setTimeout(() => { if(pendingRender && !editing()){ pendingRender = false; render(); } }, 0));
+
+function authErrMsg(e){
+ const c = (e && e.code) || '';
+ if(c==='auth/popup-closed-by-user' || c==='auth/cancelled-popup-request') return 'ログインがキャンセルされました。';
+ if(c==='auth/popup-blocked') return 'ポップアップがブロックされました。ブラウザのアドレスバー付近の表示から、このサイトのポップアップを許可してください。';
+ if(c==='auth/unauthorized-domain') return 'このURLはログインが許可されていません(手順書「Firebase の承認済みドメイン」を確認してください)。';
+ if(c==='auth/operation-not-allowed') return 'Google ログインが有効になっていません(手順書「Authentication で Google を有効にする」を確認してください)。';
+ if(c==='auth/network-request-failed') return '通信エラーです。ネットワークを確認してください。';
+ if(c==='auth/user-mismatch') return 'ログイン中とは別の Google アカウントが選ばれました。同じアカウントを選んでください。';
+ return 'ログインできませんでした(' + esc(c || (e && e.message) || '不明なエラー') + ')';
+}
+async function login(){
+ loginErr = '';
+ const p = new firebase.auth.GoogleAuthProvider(); p.setCustomParameters({prompt:'select_account'});
+ try { await AUTH.signInWithPopup(p); }
+ catch(e){
+  if(e && (e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment')){ try { await AUTH.signInWithRedirect(p); return; } catch(e2){ e = e2; } }
+  loginErr = authErrMsg(e); render();
+ }
+}
+async function logout(){ await AUTH.signOut(); }
+
+function subscribe(){
+ const got = {cfg:false, ir:false, eps:false};
+ const timer = setTimeout(() => { connNote = '共有データにまだ接続できません。通信状況を確認してください(表示が最新でない可能性があります)。'; render(); }, 10000);
+ const arrived = (k, snap) => {
+  if(!snap.metadata.fromCache){ got[k] = true; if(got.cfg && got.ir && got.eps){ clearTimeout(timer); connNote = ''; } }
+  scheduleRender();
+ };
+ const fail = e => { clearTimeout(timer); connErr = true; connNote = e && e.code==='permission-denied' ? '共有データを読む権限がありません。メンバー登録を管理者に確認してください。' : '共有データの読み込みでエラーが発生しました。ページを開き直してください。'; render(); };
+ unsubs.push(DB.doc('config/main').onSnapshot(s => { const keepIr = state.irCalls, keepEps = state.eps; state = {...normCfg(s.exists ? clone(s.data()) : null), irCalls:keepIr, eps:keepEps}; arrived('cfg', s); }, fail));
+ unsubs.push(DB.doc('config/ir').onSnapshot(s => { const d = s.exists ? s.data() : null; state.irCalls = d && Array.isArray(d.calls) ? [...new Set(d.calls.filter(isValidDate))] : []; arrived('ir', s); }, fail));
+ unsubs.push(DB.collection('eps').onSnapshot(q => { state.eps = q.docs.map(d => normEp({...clone(d.data()), id:d.id})); arrived('eps', q); }, fail));
+ unsubs.push(DB.collection('members').onSnapshot(q => {
+  MEMBERS = q.docs.map(d => ({email:d.id, name:str(d.data().name), role:d.data().role==='admin'?'admin':'member'})).sort((a,b)=>a.email.localeCompare(b.email));
+  const me = MEMBERS.find(m=>m.email===(ME&&ME.email));
+  if(me){ ME = {...ME, ...me}; IS_ADMIN = me.role==='admin'; }
+  else if(ME){ connErr = true; connNote = 'あなたのメンバー登録が削除されました。'; }
+  scheduleRender();
+ }, () => {}));
+}
+
+async function initStore(){
+ if(!CONFIGURED || !window.firebase){
+  MODE = 'local'; state = loadLocal(); render();
+  window.addEventListener('storage', e => { if(e.key===STORE_KEY){ state = loadLocal(); scheduleRender(); } });
+  return;
+ }
+ firebase.initializeApp(FB_CFG);
+ AUTH = firebase.auth(); DB = firebase.firestore();
+ AUTH.getRedirectResult().catch(e => { loginErr = authErrMsg(e); render(); });
+ AUTH.onAuthStateChanged(async u => {
+  unsubs.forEach(f => { try { f(); } catch(e){} }); unsubs = [];
+  USER = u; ME = null; IS_ADMIN = false; GTOKEN = null; MEMBERS = []; connNote = ''; connErr = false;
+  state = {...defaultConfig(), irCalls:[], eps:[]};
+  if(!u){ MODE = 'login'; render(); return; }
+  MODE = 'loading'; render();
+  const email = str(u.email).toLowerCase();
+  try {
+   const ref = DB.collection('members').doc(email);
+   let s = await ref.get();
+   if(!s.exists){
+    // まだ誰も登録していない状態で「管理者(セキュリティルールに書いたメール)」がログインしたときだけ成功する
+    try { await ref.set({role:'admin', name:str(u.displayName), addedBy:email, addedAt:firebase.firestore.FieldValue.serverTimestamp()}); s = await ref.get(); }
+    catch(e){ MODE = 'denied'; render(); return; }
+   }
+   const d = s.data() || {};
+   ME = {email, name:str(d.name), role:d.role==='admin'?'admin':'member'}; IS_ADMIN = ME.role==='admin';
+  } catch(e){ MODE = 'denied'; render(); return; }
+  MODE = 'shared'; subscribe(); render();
+ });
+}
+
+const T0 = todayStr();
+const ui = {
+ tab:'cal', month: MONTHS.includes(T0.slice(0,7)) ? T0.slice(0,7) : MONTHS[0],
+ selDay:null, showDone:false, editId:null, tlEp:'', repTeam:'', repDate:T0, repText:null, icsDone:false
+};
+const F = {team:'', owner:'', ep:''};
+
+/* ================= 共通 ================= */
+function esc(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg){ const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('show'), 2600); }
+function ask(msg, okLabel){
+ return new Promise(res => {
+  const m = document.getElementById('modal'), ok = document.getElementById('modal-ok'), no = document.getElementById('modal-no');
+  document.getElementById('modal-msg').textContent = msg; ok.textContent = okLabel || 'OK';
+  const close = v => { m.classList.remove('show'); ok.onclick = no.onclick = m.onclick = null; res(v); };
+  ok.onclick = () => close(true); no.onclick = () => close(false); m.onclick = e => { if(e.target===m) close(false); };
+  m.classList.add('show'); ok.focus();
+ });
+}
+async function copyText(text){
+ try { await navigator.clipboard.writeText(text); toast('コピーしました'); return; } catch(e){}
+ const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select();
+ let ok = false; try { ok = document.execCommand('copy'); } catch(e){} ta.remove();
+ toast(ok ? 'コピーしました' : 'コピーできませんでした');
+}
+function offerFile(name, text, mime){
+ const blob = new Blob([text], {type:mime});
+ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+ document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+}
+function teams(){ const set = new Set(state.eps.map(e=>e.team).filter(Boolean)); state.jobMeetings.forEach(j=>j.team && set.add(j.team)); return [...set].sort((a,b)=>a.localeCompare(b,'ja')); }
+function owners(){ return [...new Set(state.eps.map(e=>e.owner).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ja')); }
+function tc(team){ const c = state.teamColors[team]; if(c && /^#[0-9a-fA-F]{6}$/.test(c)) return c; const i = teams().indexOf(team); return i<0 ? '#718096' : PALETTE[i % PALETTE.length]; }
+function getSt(ep, opId){ return (ep.statuses[opId] && ep.statuses[opId].s) || 'todo'; }
+function epById(id){ return state.eps.find(e=>e.id===id); }
+function filteredEps(){ return state.eps.filter(ep => (!F.team || ep.team===F.team) && (!F.owner || ep.owner===F.owner) && (!F.ep || ep.id===F.ep)); }
+function itemsFor(eps){
+ const out = [];
+ eps.forEach(ep => {
+  if(!isValidDate(ep.depart)) return;
+  state.opDefs.forEach((op, idx) => { const date = opDate(ep, op); if(!date) return; const st = ep.statuses[op.id] || {}; out.push({ep, op, idx, date, status:st.s || 'todo', at:st.at || ''}); });
+ });
+ return out.sort((a,b) => a.date.localeCompare(b.date) || a.ep.name.localeCompare(b.ep.name,'ja') || (a.idx - b.idx));
+}
+function classify(it, today){ if(it.status==='done') return 'done'; if(it.date < today) return 'over'; if(diffDays(it.date, today) <= 7) return 'soon'; return 'later'; }
+const CLS_LABEL = {over:'期限切れ', soon:'7日以内', later:'それ以降', done:'完了'};
+function statusSelect(ep, op, s){
+ return `<select class="st st-${s}" data-chg="status" data-ep="${esc(ep.id)}" data-op="${esc(op.id)}">` + Object.entries(STATUS).map(([k,v]) => `<option value="${k}"${k===s?' selected':''}>${v}</option>`).join('') + '</select>';
+}
+function setStatus(epId, opId, s){
+ const ep = epById(epId); if(!ep) return;
+ ep.statuses[opId] = {s, at: todayStr()};
+ saveStatus(ep, opId); render();
+}
+function filterNote(){ const f = [F.team&&`チーム:${F.team}`, F.owner&&`担当:${F.owner}`, F.ep&&`渡航者:${(epById(F.ep)||{}).name||''}`].filter(Boolean); return f.length ? f.join(' / ') : 'すべて'; }
+
+/* ================= 描画 ================= */
+function banner(){
+ if(MODE==='shared'){
+  if(connNote) return `<div class="banner ${connErr?'er':'wr'}">${esc(connNote)}</div>`;
+  return '';
+ }
+ return '<div class="banner wr">お試しモード:データはこのブラウザだけに保存されています。全員で共有するには、手順書に沿って config.js に Firebase の設定を書き込んでください。</div>';
+}
+function whoHtml(){
+ if(MODE==='local') return '<span class="muted">お試しモード</span>';
+ if(!USER) return '';
+ return `<span class="muted" title="${esc(USER.email)}">${esc(ME && ME.name ? ME.name : USER.email)}${IS_ADMIN?'(管理者)':''}</span><button class="btn sm" data-act="logout">ログアウト</button>`;
+}
+function gateHtml(){
+ if(MODE==='login') return `<div class="card gate"><h2>ログインしてください</h2>
+  <p>このカレンダーは OGX メンバー専用です。登録された Google アカウントでログインすると、全員で同じカレンダーを見たり編集したりできます。</p>
+  <button class="btn pri big" data-act="login">Google でログイン</button>
+  ${loginErr?`<div class="banner er" style="margin-top:12px">${loginErr}</div>`:''}</div>`;
+ if(MODE==='denied') return `<div class="card gate"><h2>まだメンバー登録されていません</h2>
+  <p>ログイン中のアカウント:<b>${esc(USER ? USER.email : '')}</b></p>
+  <p>このメールアドレスを管理者に伝えて、「メンバー」タブで追加してもらってください。追加されたら、このページを開き直すと使えるようになります。</p>
+  <div class="row"><button class="btn" data-act="reload">開き直す</button><button class="btn" data-act="logout">別のアカウントでログイン</button></div></div>`;
+ return '<div class="card loading">データを読み込んでいます…</div>';
+}
+function render(){
+ if(F.ep && !epById(F.ep)) F.ep = '';
+ document.getElementById('who').innerHTML = whoHtml();
+ const nav = document.getElementById('nav'); nav.style.display = (MODE==='shared' || MODE==='local') ? '' : 'none';
+ nav.querySelector('[data-tab="mem"]').style.display = MODE==='shared' ? '' : 'none';
+ if(ui.tab==='mem' && MODE!=='shared') ui.tab = 'cal';
+ document.querySelectorAll('#nav button').forEach(b => b.classList.toggle('on', b.dataset.tab===ui.tab));
+ const main = document.getElementById('main');
+ if(MODE!=='shared' && MODE!=='local'){ main.innerHTML = gateHtml(); return; }
+ const withFilter = ['cal','list','data'].includes(ui.tab);
+ main.innerHTML = banner() + (withFilter ? filterBar() : '') + VIEWS[ui.tab]();
+ if(ui.tab==='ep') epPreview();
+}
+/* 表示の切り替え:全員/チーム別/個人別(担当メンバー) */
+const VKEY = 'ogx-opcal-view';
+const V = (() => { try { const v = JSON.parse(localStorage.getItem(VKEY)); if(v && ['all','team','person'].includes(v.mode)) return v; } catch(e){} return {mode:'all', team:'', person:''}; })();
+function applyView(){ F.team = V.mode==='team' ? V.team : ''; F.owner = V.mode==='person' ? V.person : ''; try { localStorage.setItem(VKEY, JSON.stringify(V)); } catch(e){} }
+applyView();
+function people(){ const s = new Set(owners()); MEMBERS.forEach(m => m.name && s.add(m.name)); return [...s].sort((a,b)=>a.localeCompare(b,'ja')); }
+function filterBar(){
+ const opt = (v, cur, label) => `<option value="${esc(v)}"${v===cur?' selected':''}>${esc(label)}</option>`;
+ const seg = (m, label) => `<button class="seg${V.mode===m?' on':''}" data-act="vMode" data-m="${m}">${label}</button>`;
+ let sub = '';
+ if(V.mode==='team') sub = `<select data-chg="vTeam">${opt('',V.team,'チームを選ぶ')}${teams().map(t=>opt(t,V.team,t)).join('')}</select>`;
+ if(V.mode==='person') sub = `<select data-chg="vPerson">${opt('',V.person,'担当メンバーを選ぶ')}${people().map(t=>opt(t,V.person,t)).join('')}</select>`;
+ const myName = ME && ME.name;
+ return `<div class="filters">
+  <label>表示</label><span class="segs">${seg('all','全員')}${seg('team','チーム別')}${seg('person','個人別')}</span>${sub}
+  ${myName && !(V.mode==='person' && V.person===myName) ? `<button class="btn sm" data-act="vMe">自分の担当だけ</button>` : ''}
+  <label style="margin-left:8px">渡航者</label><select data-chg="fEp">${opt('',F.ep,'すべて')}${state.eps.filter(e=>(!F.team||e.team===F.team)&&(!F.owner||e.owner===F.owner)).map(e=>opt(e.id,F.ep,e.name)).join('')}</select>
+  ${(V.mode!=='all'||F.ep)?'<button class="btn sm" data-act="fClear">全員に戻す</button>':''}
+ </div>`;
+}
+function evTitle(ev){ return ev.title + (ev.kind==='ir' && state.irTarget ? `(目標 ${state.irTarget}件)` : ''); }
+function buildDayMap(monthKey){
+ const map = {}; const push = (d, it) => { (map[d] = map[d] || []).push(it); };
+ const [y,m] = monthKey.split('-').map(Number); const dim = daysInMonth(y, m);
+ state.events.forEach(ev => { if(isValidDate(ev.date) && ev.date.startsWith(monthKey)) push(ev.date, {o:0, kind:'ev'+(ev.kind==='ir'?' ir':''), text:(ev.time?ev.time+' ':'')+evTitle(ev)}); });
+ state.jobMeetings.forEach(j => {
+  if(F.team && j.team!==F.team) return;
+  for(let d=1; d<=dim; d++){ const ds = `${monthKey}-${pad(d)}`; if(wdOf(ds)===j.weekday && ds>=RANGE_START && ds<=RANGE_END) push(ds, {o:1, kind:'job', color:tc(j.team), text:`${j.time} job会 ${j.team}`}); }
+ });
+ state.irCalls.forEach(d => { if(d.startsWith(monthKey)) push(d, {o:2, kind:'irc', text:'📞 IRコール'}); });
+ const eps = filteredEps();
+ eps.forEach(ep => {
+  if(isValidDate(ep.depart) && ep.depart.startsWith(monthKey)) push(ep.depart, {o:3, kind:'dep', color:tc(ep.team), text:`✈ 出国 ${ep.name}`});
+  if(isValidDate(ep.ret) && ep.ret.startsWith(monthKey)) push(ep.ret, {o:4, kind:'ret', color:tc(ep.team), text:`🏠 帰国 ${ep.name}`});
+ });
+ const today = todayStr();
+ itemsFor(eps).forEach(it => { if(it.date.startsWith(monthKey)) push(it.date, {o:5, kind:'op', it, color:tc(it.ep.team), cls:classify(it,today), text:`${it.ep.name}:${it.op.name}`}); });
+ Object.values(map).forEach(a => a.sort((p,q)=>p.o-q.o));
+ return map;
+}
+function chipHtml(c){
+ if(c.kind==='op'){ const it = c.it;
+  return `<div class="chip op st-${it.status}${c.cls==='over'?' od':''}" style="--c:${c.color}" data-act="cycle" data-ep="${esc(it.ep.id)}" data-op="${esc(it.op.id)}" title="${esc(c.text)}(${STATUS[it.status]})クリックでステータス切替">${esc(c.text)}</div>`; }
+ return `<div class="chip ${c.kind}" ${c.color?`style="--c:${c.color}"`:''} title="${esc(c.text)}">${esc(c.text)}</div>`;
+}
+
+const VIEWS = {};
+VIEWS.cal = function(){
+ const [y,m] = ui.month.split('-').map(Number); const idx = MONTHS.indexOf(ui.month);
+ const dim = daysInMonth(y, m), off = wdOf(`${ui.month}-01`), map = buildDayMap(ui.month), today = todayStr();
+ let h = WD.map((w,i)=>`<div class="wh ${i===0?'sun':i===6?'sat':''}">${w}</div>`).join('');
+ for(let i=0;i<off;i++) h += '<div class="cell empty"></div>';
+ for(let d=1; d<=dim; d++){ const ds = `${ui.month}-${pad(d)}`, w = (off+d-1)%7;
+  h += `<div class="cell${ds===today?' today':''}${ds===ui.selDay?' sel':''}" data-act="day" data-d="${ds}"><div class="dn ${w===0?'sun':w===6?'sat':''}">${d}</div>${(map[ds]||[]).map(chipHtml).join('')}</div>`; }
+ const tail = (7 - (off+dim)%7) % 7; for(let i=0;i<tail;i++) h += '<div class="cell empty"></div>';
+ const irN = state.irCalls.filter(d=>d.startsWith(ui.month)).length, perWeek = irN / (dim/7);
+ const legend = teams().map(t=>`<span><span class="tdot" style="background:${tc(t)}"></span>${esc(t)}</span>`).join('');
+ let detail = '';
+ if(ui.selDay && ui.selDay.startsWith(ui.month)){
+  const list = map[ui.selDay] || [];
+  detail = `<div class="card day-detail"><h2>${jpFull(ui.selDay)} の予定</h2>` + (list.length ? list.map(c => c.kind==='op'
+    ? `<div class="it"><span class="tdot" style="background:${c.color}"></span><b>${esc(c.it.ep.name)}</b>${esc(c.it.op.name)}${mustBadge(c.it.op)}<span class="muted">担当:${esc(c.it.ep.owner||'未設定')}/${opLabel(c.it.op)}${c.it.op.note?'/'+esc(c.it.op.note):''}</span>${c.cls==='over'||c.cls==='soon'?`<span class="badge b-${c.cls}">${CLS_LABEL[c.cls]}</span>`:''}${statusSelect(c.it.ep,c.it.op,c.it.status)}</div>`
+    : `<div class="it">${chipHtml(c)}</div>`).join('') : '<div class="muted">予定はありません</div>') +
+   `<div class="row" style="margin-top:8px">${state.irCalls.includes(ui.selDay)
+     ? `<button class="btn sm" data-act="irDel" data-d="${ui.selDay}">この日のIRコールを取り消す</button>`
+     : `<button class="btn sm" data-act="irAddDay" data-d="${ui.selDay}">📞 この日にIRコールを実施した</button>`}
+     <button class="btn sm pri" data-act="newEpOn" data-d="${ui.selDay}">✈ この日を出国日にして渡航者を登録</button></div></div>`;
+ }
+ return `<div class="card">
+  <div class="cal-head">
+   <button class="btn" data-act="mPrev" ${idx<=0?'disabled':''}>◀ 前月</button>
+   <div class="ttl">${y}年${m}月</div>
+   <button class="btn" data-act="mNext" ${idx>=MONTHS.length-1?'disabled':''}>次月 ▶</button>
+   ${MONTHS.includes(today.slice(0,7))?'<button class="btn sm" data-act="mToday">今月</button>':''}
+   <button class="btn sm" data-act="toGcal">📅 自分の Google カレンダーへ</button>
+   <span class="muted" style="margin-left:auto">IRコール:今月 <b>${irN}回</b>(週あたり約 ${perWeek.toFixed(1)}回/目標 週3〜4回)
+    <span class="${perWeek>=3?'ok':'ng'}">${perWeek>=3?'達成ペース':'不足'}</span></span>
+  </div>
+  <div class="cal">${h}</div>
+  <div class="legend">${legend}<span>|項目クリックでステータス切替(未着手→進行中→完了)・日付クリックで詳細</span><span style="color:var(--red)">赤枠=期限切れ</span></div>
+ </div>${detail}`;
+};
+
+VIEWS.list = function(){
+ const today = todayStr(), items = itemsFor(filteredEps());
+ const groups = {over:[], soon:[], later:[], done:[]}; items.forEach(it => groups[classify(it,today)].push(it));
+ const table = (arr, cls) => `<div class="tbl-wrap"><table><thead><tr><th>期限</th><th>残り</th><th>渡航者</th><th>チーム</th><th>担当</th><th>項目</th><th>ステータス</th></tr></thead><tbody>` +
+  arr.map(it => { const dd = diffDays(it.date, today); return `<tr class="c-${cls}"><td>${jpFull(it.date)}</td><td>${dd<0?`${-dd}日超過`:dd===0?'今日':`あと${dd}日`}</td><td>${esc(it.ep.name)}</td><td><span class="tdot" style="background:${tc(it.ep.team)}"></span>${esc(it.ep.team)}</td><td>${esc(it.ep.owner)}</td><td title="${esc(it.op.note)}">${esc(it.op.name)} ${mustBadge(it.op)}<br><span class="muted">${opLabel(it.op)}</span></td><td>${statusSelect(it.ep,it.op,it.status)}</td></tr>`; }).join('') + '</tbody></table></div>';
+ const sec = k => groups[k].length ? `<div class="sec-title"><span class="badge b-${k}">${CLS_LABEL[k]}</span>${groups[k].length}件</div>${table(groups[k],k)}` : '';
+ return `<div class="card"><h2>期限一覧(期限の近い順)</h2>
+  <div class="row muted">全${items.length}件/完了 ${groups.done.length}件/期限切れ ${groups.over.length}件/7日以内 ${groups.soon.length}件
+   <label style="margin-left:auto"><input type="checkbox" data-chg="showDone" ${ui.showDone?'checked':''}> 完了も表示</label></div>
+  ${sec('over')}${sec('soon')}${sec('later')}${ui.showDone?sec('done'):''}
+  ${items.length===0?'<p class="muted">該当するオペレーションがありません。渡航者タブで登録してください。</p>':''}
+ </div>`;
+};
+
+VIEWS.tl = function(){
+ if(!state.eps.length) return '<div class="card"><p class="muted">渡航者が登録されていません。「渡航者」タブから登録してください。</p></div>';
+ if(!epById(ui.tlEp)) ui.tlEp = (F.ep && epById(F.ep)) ? F.ep : state.eps[0].id;
+ const ep = epById(ui.tlEp), today = todayStr(), items = itemsFor([ep]);
+ const done = items.filter(i=>i.status==='done').length, pct = items.length ? Math.round(done/items.length*100) : 0;
+ const R = items.map(it => { const c = classify(it,today), dd = diffDays(it.date,today);
+  return {d:it.date, k:1, h:`<div class="ti c-${c}"><span class="when">${jpFull(it.date)}<br><span class="muted">${opLabel(it.op)}・${dd<0?`${-dd}日超過`:dd===0?'今日':`あと${dd}日`}</span></span><span style="flex:1;min-width:160px">${esc(it.op.name)}${it.op.note?`<br><span class="muted">${esc(it.op.note)}</span>`:''}</span>${mustBadge(it.op)}${c!=='later'?`<span class="badge b-${c}">${CLS_LABEL[c]}</span>`:''}${statusSelect(ep,it.op,it.status)}</div>`}; });
+ if(isValidDate(ep.depart)) R.push({d:ep.depart, k:0, h:`<div class="ti dep"><span class="when">${jpFull(ep.depart)}</span>✈ 出国(${esc(ep.country||'渡航国未設定')})</div>`});
+ if(isValidDate(ep.ret) && isValidDate(ep.depart)) R.push({d:ep.ret, k:0, h:`<div class="ti dep" style="font-weight:400"><span class="when">${jpFull(ep.ret)}</span>🏠 帰国(渡航期間 ${diffDays(ep.ret,ep.depart)}日)</div>`});
+ let rows = R.sort((a,b)=>a.d.localeCompare(b.d) || a.k-b.k).map(r=>r.h).join('');
+ const noRet = state.opDefs.filter(o=>o.base==='ret').length;
+ if(!isValidDate(ep.ret) && noRet) rows += `<p class="muted">帰国日を登録すると、帰国日を基準にした項目(${noRet}件)も表示されます。</p>`;
+ return `<div class="card"><div class="row"><h2 style="margin:0">渡航者タイムライン</h2>
+  <select data-chg="tlEp">${state.eps.map(e=>`<option value="${esc(e.id)}"${e.id===ep.id?' selected':''}>${esc(e.name)}</option>`).join('')}</select></div>
+  <p class="muted"><span class="tdot" style="background:${tc(ep.team)}"></span>${esc(ep.team)}/担当:${esc(ep.owner||'未設定')}/${esc(ep.country)}/${esc(ep.op)}${isValidDate(ep.depart)?`/出国まで ${diffDays(ep.depart,today)}日`:''}</p>
+  <div class="progress"><div style="width:${pct}%"></div></div><div class="muted">進捗 ${done}/${items.length}(${pct}%)</div>
+  <div class="tl" style="margin-top:12px">${rows}</div></div>`;
+};
+
+VIEWS.ep = function(){
+ const e = ui.editId ? epById(ui.editId) : null, v = k => esc(e ? (e[k]||'') : '');
+ const hasSample = state.eps.some(x=>x.sample) || state.jobMeetings.some(x=>x.sample), today = todayStr();
+ return `<div class="card"><h2>${e?'渡航者を編集':'渡航者を登録'}</h2>
+  <div class="grid-form">
+   <label>渡航者名 *<input id="f-name" value="${v('name')}"></label>
+   <label>渡航チーム名 *<input id="f-team" list="dl-team" value="${v('team')}"></label>
+   <label>担当メンバー(で担)<input id="f-owner" list="dl-owner" value="${v('owner')}"></label>
+   <label>渡航国<input id="f-country" value="${v('country')}"></label>
+   <label>OP名<input id="f-op" value="${v('op')}"></label>
+   <label>出国日 *<input id="f-depart" type="date" value="${e ? v('depart') : esc(ui.prefDepart||'')}"></label>
+   <label>帰国日(任意)<input id="f-ret" type="date" value="${v('ret')}"></label>
+  </div>
+  <datalist id="dl-team">${teams().map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+  <datalist id="dl-owner">${owners().map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+  <div class="row" style="margin-top:10px"><button class="btn pri" data-act="epSave">${e?'更新する':'登録する'}</button>${e?'<button class="btn" data-act="epCancel">キャンセル</button>':''}</div>
+  <div id="ep-preview" class="preview"></div>
+ </div>
+ <div class="card"><div class="row"><h2 style="margin:0">登録済みの渡航者(${state.eps.length}人)</h2>
+  ${hasSample?'<button class="btn dng sm" data-act="delSamples" style="margin-left:auto">サンプルデータを削除</button>':''}</div>
+  <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>渡航者</th><th>チーム</th><th>担当</th><th>渡航国 / OP</th><th>出国日</th><th>帰国日</th><th>進捗</th><th>期限切れ</th><th></th></tr></thead><tbody>
+  ${state.eps.slice().sort((a,b)=>a.depart.localeCompare(b.depart)).map(ep => { const its = itemsFor([ep]), d = its.filter(i=>i.status==='done').length, o = its.filter(i=>classify(i,today)==='over').length;
+   return `<tr><td>${esc(ep.name)}</td><td><span class="tdot" style="background:${tc(ep.team)}"></span>${esc(ep.team)}</td><td>${esc(ep.owner)}</td><td>${esc(ep.country)}<br><span class="muted">${esc(ep.op)}</span></td><td>${jpFull(ep.depart)}</td><td>${jpFull(ep.ret)}</td><td>${d}/${its.length}</td><td>${o?`<span class="badge b-over">${o}</span>`:'-'}</td>
+   <td style="white-space:nowrap"><button class="btn sm" data-act="epEdit" data-id="${esc(ep.id)}">編集</button> <button class="btn sm dng" data-act="epDel" data-id="${esc(ep.id)}">削除</button></td></tr>`; }).join('')}
+  </tbody></table></div>
+  ${state.eps.length?'':'<p class="muted">まだ登録がありません。上のフォームから登録してください。</p>'}
+ </div>`;
+};
+
+/* 出国日を入れた時点で、全オペレーションの期限をその場で並べて見せる(保存前のプレビュー) */
+function epPreview(){
+ const box = document.getElementById('ep-preview'); if(!box) return;
+ const dep = val('f-depart'), ret = val('f-ret');
+ if(!isValidDate(dep)){ box.innerHTML = '<p class="muted">出国日を入れると、ここに全オペレーションの期限が自動で並びます。</p>'; return; }
+ const ep = {depart:dep, ret:isValidDate(ret)?ret:''}, today = todayStr();
+ const rows = state.opDefs.map((op,idx) => ({op, idx, date:opDate(ep, op)})).filter(r => r.date).sort((a,b)=>a.date.localeCompare(b.date) || a.idx-b.idx);
+ const left = diffDays(dep, today);
+ box.innerHTML = `<h3>期限の自動計算(出国 ${jpFull(dep)}${ep.ret?`/帰国 ${jpFull(ep.ret)}`:''})</h3>` +
+  (left>=0 && left<40 ? `<div class="banner wr">⚠ 出国まで${left}日です。マッチ承認(Approved)から出国までは40日以上が必須です。</div>` : '') +
+  `<div class="tbl-wrap"><table><thead><tr><th>期限</th><th>基準</th><th>項目</th></tr></thead><tbody>` +
+  rows.map(r => `<tr class="${r.date<today?'c-over':''}"><td style="white-space:nowrap">${jpFull(r.date)}</td><td class="muted" style="white-space:nowrap">${opLabel(r.op)}</td><td>${esc(r.op.name)} ${mustBadge(r.op)}</td></tr>`).join('') + '</tbody></table></div>' +
+  (!ep.ret && state.opDefs.some(o=>o.base==='ret') ? '<p class="muted">帰国日を入れると、帰国後の項目も計算されます。</p>' : '');
+}
+
+VIEWS.rep = function(){
+ const ts = teams();
+ if(!ts.length) return '<div class="card"><p class="muted">チームがありません。渡航者を登録してください。</p></div>';
+ if(!ts.includes(ui.repTeam)){ ui.repTeam = F.team && ts.includes(F.team) ? F.team : ts[0]; ui.repText = null; }
+ if(ui.repText === null) ui.repText = genReport(ui.repTeam, ui.repDate);
+ return `<div class="card"><h2>job会用 報告テンプレート</h2>
+  <div class="row"><label class="muted">チーム</label><select data-chg="repTeam">${ts.map(t=>`<option value="${esc(t)}"${t===ui.repTeam?' selected':''}>${esc(t)}</option>`).join('')}</select>
+   <label class="muted">基準日(job会の日)</label><input type="date" data-chg="repDate" value="${ui.repDate}">
+   <button class="btn" data-act="repRegen">最新の状態で作り直す</button><button class="btn pri" data-act="repCopy">📋 コピー</button></div>
+  <p class="muted">「(記入)」の部分を書き足してから Slack に貼ってください。テキストはこの画面で直接編集できます(編集内容は自分の画面だけに残ります)。</p>
+  <textarea id="rep-out" rows="26" data-chg="repText">${esc(ui.repText)}</textarea></div>`;
+};
+
+function genReport(team, date){
+ const eps = state.eps.filter(e=>e.team===team).sort((a,b)=>a.depart.localeCompare(b.depart));
+ const items = itemsFor(eps), notDone = items.filter(i=>i.status!=='done');
+ const over = notDone.filter(i=>i.date < date), upcoming = notDone.filter(i=>i.date >= date && diffDays(i.date, date) <= 30);
+ const later = notDone.length - over.length - upcoming.length;
+ const recent = items.filter(i=>i.status==='done' && i.at && diffDays(date, i.at) >= 0 && diffDays(date, i.at) <= 7);
+ const doing = notDone.filter(i=>i.status==='doing');
+ const jm = state.jobMeetings.find(j=>j.team===team);
+ const L = [];
+ L.push(`【job会報告】${team}(${jpFull(date)})`);
+ L.push(`渡航者:${eps.map(e=>`${e.name}(${e.country||'国未定'}/出国 ${jp(e.depart)}${isValidDate(e.depart)?`・あと${diffDays(e.depart,date)}日`:''})`).join('、') || 'なし'}`);
+ if(jm) L.push(`定例:毎週${WD[jm.weekday]}曜 ${jm.time}`);
+ L.push('', '■ 事実(何をしたか)');
+ if(recent.length) recent.forEach(i => L.push(`・${i.ep.name}:${i.op.name} を完了(${jp(i.at)})`)); else L.push('・(直近7日に完了したオペレーションはありません)');
+ doing.forEach(i => L.push(`・${i.ep.name}:${i.op.name} に着手中`));
+ L.push('・(その他の動き:記入)', '', '■ 解釈(何ができて、何がまだできていないか)');
+ eps.forEach(e => { const its = items.filter(i=>i.ep===e), d = its.filter(i=>i.status==='done').length, o = its.filter(i=>i.status!=='done' && i.date<date).length;
+  L.push(`・${e.name}:完了 ${d}/${its.length}件${o?`/⚠期限切れ ${o}件`:''}`); });
+ if(over.length){ L.push('・期限切れ(未完了):'); over.forEach(i => L.push(`  - ${i.ep.name}:${i.op.name}(期限 ${jp(i.date)}、${diffDays(date,i.date)}日超過)`)); }
+ L.push('・できていること:(記入)', '・まだできていないこと:(記入)', '', '■ NA と担当者、期日(次に何をするか、誰がいつまでに)');
+ if(!over.length && !upcoming.length) L.push('・(30日以内に期限の来るオペレーションはありません)');
+ [...over, ...upcoming].forEach(i => L.push(`・${i.date<date?'⚠':''}[〜${jp(i.date)}] ${i.ep.name}:${i.op.name}${i.op.must?'【必須】':''} → 担当:${i.ep.owner||'未設定'}${i.status==='doing'?'(進行中)':''}`));
+ if(later > 0) L.push(`・(31日以降に期限の来る未完了 ${later}件はカレンダー参照)`);
+ L.push('', '■ 疑問点(分からないこと、オペレーションの不安点)', '・(記入)');
+ return L.join('\n');
+}
+
+VIEWS.set = function(){
+ const ops = state.opDefs.map((o,i) => `<tr><td>${i+1}</td><td><input style="width:100%;min-width:200px" value="${esc(o.name)}" data-chg="opName" data-id="${esc(o.id)}">
+   <input style="width:100%;margin-top:3px;font-size:12px" placeholder="メモ・根拠(任意)" value="${esc(o.note)}" data-chg="opNote" data-id="${esc(o.id)}"></td>
+  <td style="white-space:nowrap"><select data-chg="opBase" data-id="${esc(o.id)}"><option value="dep"${o.base==='dep'?' selected':''}>出国日の</option><option value="ret"${o.base==='ret'?' selected':''}>帰国日の</option></select>
+   <input type="number" min="0" style="width:64px" value="${o.days}" data-chg="opDays" data-id="${esc(o.id)}"> 日
+   <select data-chg="opDir" data-id="${esc(o.id)}"><option value="before"${o.dir==='before'?' selected':''}>前</option><option value="after"${o.dir==='after'?' selected':''}>後</option></select></td>
+  <td style="white-space:nowrap"><label class="muted"><input type="checkbox" data-chg="opMust" data-id="${esc(o.id)}" ${o.must?'checked':''}> 必須</label></td>
+  <td style="white-space:nowrap"><button class="btn sm" data-act="opUp" data-id="${esc(o.id)}" ${i===0?'disabled':''}>↑</button> <button class="btn sm" data-act="opDown" data-id="${esc(o.id)}" ${i===state.opDefs.length-1?'disabled':''}>↓</button> <button class="btn sm dng" data-act="opDel" data-id="${esc(o.id)}">削除</button></td></tr>`).join('');
+ const evs = state.events.slice().sort((a,b)=>a.date.localeCompare(b.date)).map(e => `<tr><td><input type="date" value="${esc(e.date)}" data-chg="evField" data-f="date" data-id="${esc(e.id)}"></td>
+  <td><input type="time" value="${esc(e.time)}" data-chg="evField" data-f="time" data-id="${esc(e.id)}"></td>
+  <td><input style="width:100%" value="${esc(e.title)}" data-chg="evField" data-f="title" data-id="${esc(e.id)}"></td>
+  <td><button class="btn sm dng" data-act="evDel" data-id="${esc(e.id)}">削除</button></td></tr>`).join('');
+ const jms = state.jobMeetings.map(j => `<tr><td><input list="dl-team2" value="${esc(j.team)}" data-chg="jobField" data-f="team" data-id="${esc(j.id)}"></td>
+  <td><select data-chg="jobField" data-f="weekday" data-id="${esc(j.id)}">${WD.map((w,i)=>`<option value="${i}"${j.weekday===i?' selected':''}>${w}曜</option>`).join('')}</select></td>
+  <td><input type="time" value="${esc(j.time)}" data-chg="jobField" data-f="time" data-id="${esc(j.id)}"></td>
+  <td><button class="btn sm dng" data-act="jobDel" data-id="${esc(j.id)}">削除</button></td></tr>`).join('');
+ const irRows = MONTHS.map(mk => { const [y,m] = mk.split('-').map(Number), n = state.irCalls.filter(d=>d.startsWith(mk)).length, pw = n/(daysInMonth(y,m)/7);
+  return `<tr><td>${y}年${m}月</td><td>${n}回</td><td>${pw.toFixed(1)}回/週</td><td class="${pw>=3?'ok':'ng'}">${pw>=3?'達成':'未達'}</td></tr>`; }).join('');
+ return `<div class="card"><h2>オペレーション定義</h2><p class="muted">期限は「出国日」または「帰国日」の◯日前/後で計算します。変更はすぐ全渡航者の期限に反映されます。初期値は Delivery Operation Manual(2026/09/19更新)の期限・プロセスタイムから作成しています。「必須」はマニュアルで Must とされている期限です。</p>
+  <div class="tbl-wrap"><table><thead><tr><th>#</th><th>項目名/メモ</th><th>期限</th><th></th><th></th></tr></thead><tbody>${ops}</tbody></table></div>
+  <div class="row" style="margin-top:8px"><input id="new-op-name" placeholder="新しい項目名" style="flex:1;min-width:180px">
+   <select id="new-op-base"><option value="dep">出国日の</option><option value="ret">帰国日の</option></select><input id="new-op-days" type="number" min="0" placeholder="日数" style="width:80px"> 日
+   <select id="new-op-dir"><option value="before">前</option><option value="after">後</option></select><button class="btn pri" data-act="opAdd">追加</button>
+   <button class="btn sm" data-act="opReset" style="margin-left:auto">マニュアルの初期値に戻す</button></div>
+ </div>
+ <div class="card"><h2>固定イベント(全員共通)</h2>
+  <div class="tbl-wrap"><table><thead><tr><th>日付</th><th>時刻</th><th>内容</th><th></th></tr></thead><tbody>${evs}</tbody></table></div>
+  <div class="row" style="margin-top:8px"><input id="new-ev-date" type="date"><input id="new-ev-time" type="time"><input id="new-ev-title" placeholder="内容(例:LC総会、選考)" style="flex:1;min-width:180px"><button class="btn pri" data-act="evAdd">追加</button></div>
+ </div>
+ <div class="card"><h2>毎週の job 会</h2>
+  <datalist id="dl-team2">${teams().map(t=>`<option value="${esc(t)}">`).join('')}</datalist>
+  <div class="tbl-wrap"><table><thead><tr><th>チーム</th><th>曜日</th><th>時刻</th><th></th></tr></thead><tbody>${jms}</tbody></table></div>
+  ${state.jobMeetings.length?'':'<p class="muted">まだ登録がありません。</p>'}
+  <div class="row" style="margin-top:8px"><input id="new-jm-team" list="dl-team2" placeholder="チーム名"><select id="new-jm-wd">${WD.map((w,i)=>`<option value="${i}">${w}曜</option>`).join('')}</select><input id="new-jm-time" type="time" value="21:00"><button class="btn pri" data-act="jobAdd">追加</button></div>
+ </div>
+ <div class="card"><h2>IR コール</h2>
+  <div class="row"><label class="muted">IR 連絡件数目標(2027/3/31 締切)</label><input type="number" min="0" style="width:100px" value="${state.irTarget||''}" data-chg="irTarget"> 件
+   <span class="muted">現在の登録実施回数:${state.irCalls.length}回${state.irTarget?`(${Math.round(state.irCalls.length/state.irTarget*100)}%)`:''}</span></div>
+  <div class="row" style="margin-top:8px"><input id="new-ir-date" type="date" value="${todayStr()}"><button class="btn pri" data-act="irAdd">実施日を追加</button><span class="muted">目標:週3〜4回</span></div>
+  <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>月</th><th>実施回数</th><th>週平均</th><th>週3回以上</th></tr></thead><tbody>${irRows}</tbody></table></div>
+  <div class="ir-chips">${state.irCalls.slice().sort().map(d=>`<span>${jp(d)}<button data-act="irDel" data-d="${d}" title="削除">×</button></span>`).join('')}</div>
+ </div>
+ <div class="card"><h2>チームの色</h2><div class="row">${teams().map(t=>`<label class="row" style="gap:4px"><input type="color" value="${tc(t)}" data-chg="teamColor" data-team="${esc(t)}">${esc(t)}</label>`).join('') || '<span class="muted">チームがまだありません</span>'}</div></div>`;
+};
+
+VIEWS.data = function(){
+ const icsBtn = '<button class="btn" data-act="exportIcs">.ics を書き出す</button>';
+ return gcCard() + `<div class="card"><h2>バックアップ・共有用(JSON)</h2><p class="muted">${MODE==='shared'?'このページは全員で同じデータを使っています。JSON はバックアップや別の場所への移行に使ってください(読み込み・初期化は管理者のみ)。':'メンバー間で共有するときは JSON を書き出して渡し、受け取った人が読み込みます。'}<b>読み込むと今のデータは${MODE==='shared'?'全員分':''}置き換わります。</b></p>
+  <div class="row"><button class="btn pri" data-act="exportJson">JSON を書き出す</button><button class="btn" data-act="copyJson">JSON をコピー</button>
+   <label class="btn" style="cursor:pointer">JSON を読み込む<input type="file" accept=".json,application/json" data-chg="importFile" style="display:none"></label></div></div>
+ <div class="card"><h2>カレンダー・表計算向け</h2><p class="muted">以下は上の絞り込み条件(${esc(filterNote())})で出力します。</p>
+  <div class="row"><button class="btn" data-act="exportCsv">一覧 CSV を書き出す</button><button class="btn" data-act="exportGcal">Google カレンダー用 CSV</button>${icsBtn}<button class="btn" data-act="copyIcs">.ics の中身をコピー</button>
+   <label class="muted"><input type="checkbox" data-chg="icsDone" ${ui.icsDone?'checked':''}> 完了済みの項目も含める</label></div>
+  <p class="muted">Google カレンダーへの取り込み:「Google カレンダー用 CSV」を保存 → Google カレンダーの「設定 → インポート/エクスポート → インポート」で選択。Outlook などは「.ics の中身をコピー」してメモ帳に貼り、拡張子 .ics で保存して取り込めます。</p></div>
+ <div class="card"><h2>初期化</h2><p class="muted">${MODE==='shared'?'共有データをすべて消して、初期設定(オペレーション定義・固定イベント)だけの状態に戻します。全員の画面から渡航者が消えます。':'すべてのデータを消して、初期状態(サンプル入り)に戻します。'}</p><button class="btn dng" data-act="resetAll">初期状態に戻す</button></div>`;
+};
+
+/* ================= 出力 ================= */
+function stamp(){ const d = new Date(); return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate()); }
+function csvCell(v){ v = String(v ?? ''); return /[",\r\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+function toCsv(rows){ return '\uFEFF' + rows.map(r=>r.map(csvCell).join(',')).join('\r\n') + '\r\n'; }
+function exportCsv(){
+ const rows = [['渡航者','チーム','担当','渡航国','OP名','項目','期限','基準','必須','出国日','帰国日','ステータス','更新日']];
+ itemsFor(filteredEps()).forEach(i => rows.push([i.ep.name,i.ep.team,i.ep.owner,i.ep.country,i.ep.op,i.op.name,i.date,opLabel(i.op),i.op.must?'必須':'',i.ep.depart,i.ep.ret,STATUS[i.status],i.at]));
+ offerFile(`ogx-operations-${stamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
+}
+/* 予定の一覧(.ics と Google カレンダー用 CSV で共通) */
+function calEntries(){
+ const E = [];
+ itemsFor(filteredEps()).forEach(i => { if(!ui.icsDone && i.status==='done') return;
+  E.push({id:`op-${i.ep.id}-${i.op.id}`, date:i.date, title:`【期限】${i.ep.name}:${i.op.name}`, desc:`チーム:${i.ep.team}\n担当:${i.ep.owner||'未設定'}\n期限:${opLabel(i.op)}${i.op.must?'(必須)':''}\n出国日:${i.ep.depart}${i.ep.ret?'/帰国日:'+i.ep.ret:''}\nステータス:${STATUS[i.status]}${i.op.note?'\nメモ:'+i.op.note:''}`}); });
+ filteredEps().forEach(ep => { if(isValidDate(ep.depart)) E.push({id:`dep-${ep.id}`, date:ep.depart, title:`✈ 出国 ${ep.name}`, desc:`${ep.team}/${ep.country}/${ep.op}`});
+  if(isValidDate(ep.ret)) E.push({id:`ret-${ep.id}`, date:ep.ret, title:`帰国 ${ep.name}`, desc:ep.team}); });
+ state.events.forEach(ev => { if(isValidDate(ev.date)) E.push({id:`ev-${ev.id}`, date:ev.date, time:ev.time, title:evTitle(ev)}); });
+ state.jobMeetings.forEach(j => { if(F.team && j.team!==F.team) return; let d = RANGE_START; while(wdOf(d)!==j.weekday) d = addDays(d,1);
+  E.push({id:`jm-${j.id}`, date:d, time:j.time||'21:00', title:`job会 ${j.team}`, weekly:true}); });
+ state.irCalls.forEach(d => E.push({id:`ir-${d}`, date:d, title:'📞 IRコール'}));
+ return E;
+}
+function endOf(date, time){ const [hh,mm] = time.split(':').map(Number), e = hh*60+mm+60; return {date: e>=1440 ? addDays(date,1) : date, time: pad(Math.floor((e%1440)/60))+':'+pad(e%60)}; }
+function icsEsc(s){ return String(s ?? '').replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\r?\n/g,'\\n'); }
+function icsFold(line){ const enc = new TextEncoder(); let out = '', cur = '', bytes = 0;
+ for(const ch of line){ const b = enc.encode(ch).length; if(bytes + b > 73){ out += cur + '\r\n '; cur = ''; bytes = 1; } cur += ch; bytes += b; } return out + cur; }
+function buildIcs(){
+ const L = ['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//OGX//Operation Calendar//JA','CALSCALE:GREGORIAN','METHOD:PUBLISH','X-WR-CALNAME:OGX オペレーションカレンダー','X-WR-TIMEZONE:Asia/Tokyo',
+  'BEGIN:VTIMEZONE','TZID:Asia/Tokyo','BEGIN:STANDARD','DTSTART:19700101T000000','TZOFFSETFROM:+0900','TZOFFSETTO:+0900','TZNAME:JST','END:STANDARD','END:VTIMEZONE'];
+ const now = new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'Z'), ymd = s => s.replace(/-/g,'');
+ calEntries().forEach(e => {
+  L.push('BEGIN:VEVENT', `UID:${e.id}@ogx-opcal`, `DTSTAMP:${now}`);
+  if(e.time){ const en = endOf(e.date, e.time); L.push(`DTSTART;TZID=Asia/Tokyo:${ymd(e.date)}T${e.time.replace(':','')}00`, `DTEND;TZID=Asia/Tokyo:${ymd(en.date)}T${en.time.replace(':','')}00`); }
+  else L.push(`DTSTART;VALUE=DATE:${ymd(e.date)}`, `DTEND;VALUE=DATE:${ymd(addDays(e.date,1))}`);
+  if(e.weekly) L.push(`RRULE:FREQ=WEEKLY;UNTIL=${ymd(RANGE_END)}T145959Z`);
+  L.push(`SUMMARY:${icsEsc(e.title)}`); if(e.desc) L.push(`DESCRIPTION:${icsEsc(e.desc)}`); L.push('END:VEVENT');
+ });
+ L.push('END:VCALENDAR');
+ return L.map(icsFold).join('\r\n') + '\r\n';
+}
+function exportGcal(){
+ const us = s => { const [y,m,d] = s.split('-'); return `${m}/${d}/${y}`; };
+ const t12 = t => { let [h,m] = t.split(':').map(Number); const ap = h>=12 ? 'PM' : 'AM'; h = h%12 || 12; return `${pad(h)}:${pad(m)} ${ap}`; };
+ const rows = [['Subject','Start Date','Start Time','End Date','End Time','All Day Event','Description']];
+ calEntries().forEach(e => {
+  const dates = [e.date]; if(e.weekly){ let d = addDays(e.date,7); while(d <= RANGE_END){ dates.push(d); d = addDays(d,7); } }
+  dates.forEach(d => { if(e.time){ const en = endOf(d, e.time); rows.push([e.title, us(d), t12(e.time), us(en.date), t12(en.time), 'False', e.desc||'']); }
+   else rows.push([e.title, us(d), '', us(d), '', 'True', e.desc||'']); });
+ });
+ offerFile(`ogx-google-calendar-${stamp()}.csv`, toCsv(rows), 'text/csv;charset=utf-8');
+}
+
+/* ================= Google カレンダー連携(各自の Google アカウントで、専用カレンダー「OGX オペレーション」に反映) =================
+   ・スコープは calendar.app.created(このアプリが作ったカレンダーだけを操作できる。ふだんの予定には触れない)
+   ・予定には非公開の拡張プロパティ(ogxKey など)を付け、次回はカレンダー側の予定と比べて差分だけを反映する */
+const GSCOPE = 'https://www.googleapis.com/auth/calendar.app.created';
+const GAPI = 'https://www.googleapis.com/calendar/v3';
+const GCAL_NAME = 'OGX オペレーション';
+let GTOKEN = null, GTOKEN_AT = 0;
+const GC = {ops:true, dates:true, events:false, jobs:false, prune:true, remind:true, busy:false, msg:'', cls:''};
+function gcEntries(){
+ const E = [], eps = filteredEps();
+ if(GC.ops) itemsFor(eps).forEach(i => { if(i.status==='done') return;
+  E.push({key:`op-${i.ep.id}-${i.op.id}`, cat:'op', ep:i.ep.id, date:i.date, remind:GC.remind, title:`【期限】${i.ep.name}:${i.op.name}${i.op.must?'(必須)':''}`,
+   desc:`チーム:${i.ep.team}\n担当:${i.ep.owner||'未設定'}\n期限:${opLabel(i.op)}\n出国日:${i.ep.depart}${i.ep.ret?'/帰国日:'+i.ep.ret:''}${i.op.note?'\nメモ:'+i.op.note:''}\n\nOGX オペレーションカレンダーから追加`}); });
+ if(GC.dates) eps.forEach(ep => {
+  if(isValidDate(ep.depart)) E.push({key:`dep-${ep.id}`, cat:'date', ep:ep.id, date:ep.depart, title:`✈ 出国 ${ep.name}`, desc:`${ep.team}/${ep.country}/${ep.op}`});
+  if(isValidDate(ep.ret)) E.push({key:`ret-${ep.id}`, cat:'date', ep:ep.id, date:ep.ret, title:`🏠 帰国 ${ep.name}`, desc:ep.team}); });
+ if(GC.events) state.events.forEach(ev => { if(isValidDate(ev.date)) E.push({key:`ev-${ev.id}`, cat:'ev', date:ev.date, time:ev.time, title:evTitle(ev), desc:'OGX 固定イベント'}); });
+ if(GC.jobs) state.jobMeetings.forEach(j => { if(F.team && j.team!==F.team) return; let d = RANGE_START; while(wdOf(d)!==j.weekday) d = addDays(d,1);
+  E.push({key:`jm-${j.id}`, cat:'jm', team:j.team, date:d, time:j.time||'21:00', weekly:true, title:`job会 ${j.team}`, desc:'毎週の job 会(2027/5/31まで)'}); });
+ return E;
+}
+function gcSig(e){ const s = [e.date, e.time||'', e.title, e.desc||'', e.weekly?'w':'', e.remind?'r':''].join('|'); let h = 5381; for(let i=0;i<s.length;i++) h = ((h*33) ^ s.charCodeAt(i)) >>> 0; return h.toString(36) + s.length.toString(36); }
+function gcInScope(r){
+ if(r.cat==='op' || r.cat==='date'){ const ep = epById(r.ep); if(!ep) return true; return filteredEps().includes(ep) && (r.cat==='op' ? GC.ops : GC.dates); }
+ if(r.cat==='ev') return GC.events || !state.events.some(ev => `ev-${ev.id}`===r.key);
+ if(r.cat==='jm') return (GC.jobs && (!F.team || r.team===F.team)) || !state.jobMeetings.some(j => `jm-${j.id}`===r.key);
+ return false;
+}
+function gcBody(e){
+ const b = {summary:e.title, description:e.desc||'', extendedProperties:{private:{ogxApp:'opcal', ogxKey:e.key, ogxSig:gcSig(e), ogxCat:e.cat, ogxEp:e.ep||'', ogxTeam:e.team||''}}};
+ if(e.time){ const en = endOf(e.date, e.time); b.start = {dateTime:`${e.date}T${e.time}:00`, timeZone:'Asia/Tokyo'}; b.end = {dateTime:`${en.date}T${en.time}:00`, timeZone:'Asia/Tokyo'}; }
+ else { b.start = {date:e.date}; b.end = {date:addDays(e.date,1)}; }
+ if(e.weekly) b.recurrence = [`RRULE:FREQ=WEEKLY;UNTIL=${RANGE_END.replace(/-/g,'')}T145959Z`];
+ b.reminders = e.remind ? {useDefault:false, overrides:[{method:'popup', minutes:900}]} : {useDefault:false}; // 終日予定の 900 分前 = 前日 9:00
+ return b;
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function gToken(){
+ if(GTOKEN && Date.now() - GTOKEN_AT < 50*60000) return GTOKEN;
+ const p = new firebase.auth.GoogleAuthProvider(); p.addScope(GSCOPE);
+ if(USER && USER.email) p.setCustomParameters({login_hint:USER.email});
+ const r = await USER.reauthenticateWithPopup(p);
+ const t = r && r.credential && r.credential.accessToken;
+ if(!t) throw {code:'no-token'};
+ GTOKEN = t; GTOKEN_AT = Date.now(); return t;
+}
+async function gFetch(method, path, body, tries){
+ tries = tries || 0;
+ const res = await fetch(GAPI + path, {method, headers:{Authorization:'Bearer ' + GTOKEN, ...(body ? {'Content-Type':'application/json'} : {})}, body: body ? JSON.stringify(body) : undefined});
+ if(res.status===204) return null;
+ if(res.ok) return res.json();
+ let err = {}; try { err = (await res.json()).error || {}; } catch(e){}
+ const reason = JSON.stringify(err.errors || err.details || '') + ' ' + str(err.status) + ' ' + str(err.message);
+ if((res.status===429 || (res.status===403 && /rate|quota/i.test(reason))) && tries < 5){ await sleep(800 * 2**tries); return gFetch(method, path, body, tries+1); }
+ if(res.status===401) GTOKEN = null;
+ throw {code:'http', status:res.status, reason, message:str(err.message) || res.statusText};
+}
+function gcErr(e){
+ const c = e && e.code;
+ if(c && String(c).startsWith('auth/')) return authErrMsg(e);
+ if(c==='no-token') return 'Google カレンダーの利用許可を受け取れませんでした。もう一度押して、許可の画面で「続行」または「許可」を選んでください。';
+ if(c==='http'){
+  if(/accessNotConfigured|SERVICE_DISABLED|has not been used|is disabled/i.test(e.reason)) return 'Google Calendar API が有効になっていません(管理者向け:手順書の「Google Calendar API を有効にする」)。';
+  if(e.status===401) return 'Google の許可の期限が切れました。もう一度押してください。';
+  if(e.status===403) return 'Google カレンダーへの書き込みが許可されませんでした。もう一度押して、許可の画面でカレンダーのチェックを入れてください。(' + esc(e.message).slice(0,120) + ')';
+  return 'Google カレンダーがエラーを返しました(' + e.status + ':' + esc(e.message).slice(0,160) + ')';
+ }
+ return '通信エラーで中断しました。もう一度押すと続きから反映します。';
+}
+async function gcCalId(create){
+ const ref = DB.doc('users/' + USER.uid);
+ let calId = null;
+ try { const s = await ref.get(); calId = s.exists ? str(s.data().calId) || null : null; } catch(e){}
+ if(calId){ try { await gFetch('GET', `/calendars/${encodeURIComponent(calId)}`); } catch(e){ if(e.code==='http' && [403,404,410].includes(e.status)) calId = null; else throw e; } }
+ if(!calId && create){
+  const c = await gFetch('POST', '/calendars', {summary:GCAL_NAME, description:'OGX オペレーションカレンダーが自動で予定を追加します。手で編集した内容は次の反映で上書きされることがあります。', timeZone:'Asia/Tokyo'});
+  calId = c.id; await ref.set({calId}, {merge:true});
+ }
+ return calId;
+}
+async function gcList(calId){
+ const out = []; let pt = '';
+ do {
+  const q = new URLSearchParams({maxResults:'2500', privateExtendedProperty:'ogxApp=opcal', showDeleted:'false'}); if(pt) q.set('pageToken', pt);
+  const r = await gFetch('GET', `/calendars/${encodeURIComponent(calId)}/events?${q}`);
+  (r.items || []).forEach(ev => { const p = (ev.extendedProperties && ev.extendedProperties.private) || {}; if(p.ogxKey) out.push({id:ev.id, key:p.ogxKey, sig:p.ogxSig||'', cat:p.ogxCat||'', ep:p.ogxEp||'', team:p.ogxTeam||''}); });
+  pt = r.nextPageToken || '';
+ } while(pt);
+ return out;
+}
+function gcSetMsg(msg, cls){ GC.msg = msg; GC.cls = cls || ''; const el = document.getElementById('gc-msg'); if(el){ el.innerHTML = msg; el.className = 'banner ' + (cls || 'sh'); el.style.display = msg ? '' : 'none'; } }
+async function gcSync(){
+ if(GC.busy || MODE!=='shared') return;
+ GC.busy = true; render();
+ let done = 0, total = 0;
+ try {
+  gcSetMsg('Google の許可を確認しています…(初回は許可の画面が出ます)', 'sh');
+  await gToken(); // ボタンを押した直後にポップアップを出す(ブロックされないように)
+  gcSetMsg('あなたの Google カレンダーを確認しています…', 'sh');
+  const calId = await gcCalId(true);
+  const have = await gcList(calId), E = gcEntries(), want = new Map(E.map(e => [e.key, e]));
+  const byKey = new Map(), dups = [];
+  have.forEach(h => { if(byKey.has(h.key)) dups.push(h); else byKey.set(h.key, h); });
+  const add = E.filter(e => !byKey.has(e.key)), upd = E.filter(e => byKey.has(e.key) && byKey.get(e.key).sig !== gcSig(e));
+  const del = [...dups, ...(GC.prune ? [...byKey.values()].filter(h => !want.has(h.key) && gcInScope(h)) : [])];
+  total = add.length + upd.length + del.length;
+  if(!total){ gcSetMsg(`Google カレンダー「${GCAL_NAME}」はすでに最新の状態です。`, 'sh'); return; }
+  GC.busy = false;
+  if(!await ask(`あなたの Google カレンダー「${GCAL_NAME}」に反映します。\n\n追加 ${add.length}件/更新 ${upd.length}件/削除 ${del.length}件\n対象:${filterNote()}\n\n件数が多いと1〜2分かかります。途中でページを閉じないでください。`, '反映する')){ gcSetMsg('', ''); return; }
+  GC.busy = true; render();
+  const tick = () => gcSetMsg(`反映中… ${done}/${total}`, 'sh'); tick();
+  const base = `/calendars/${encodeURIComponent(calId)}/events`;
+  for(const h of del){ try { await gFetch('DELETE', `${base}/${encodeURIComponent(h.id)}`); } catch(e){ if(!(e.code==='http' && [404,410].includes(e.status))) throw e; } done++; tick(); await sleep(60); }
+  for(const e of upd){ await gFetch('PUT', `${base}/${encodeURIComponent(byKey.get(e.key).id)}`, gcBody(e)); done++; tick(); await sleep(60); }
+  for(const e of add){ await gFetch('POST', base, gcBody(e)); done++; tick(); await sleep(60); }
+  GC.msg = `反映しました:追加 ${add.length}件/更新 ${upd.length}件/削除 ${del.length}件(Google カレンダー「${GCAL_NAME}」)`; GC.cls = 'sh';
+ } catch(e){ GC.msg = gcErr(e) + (total ? `(${done}/${total}件は反映済み)` : ''); GC.cls = 'er'; }
+ finally { GC.busy = false; render(); }
+}
+async function gcRemoveCal(){
+ if(GC.busy || MODE!=='shared') return;
+ if(!await ask(`あなたの Google カレンダーから「${GCAL_NAME}」カレンダーを丸ごと削除しますか?\n(このアプリが追加した予定だけが消えます。ほかの予定やメンバーには影響しません)`, '削除する')) return;
+ GC.busy = true; render();
+ try { await gToken(); const calId = await gcCalId(false);
+  if(calId) await gFetch('DELETE', `/calendars/${encodeURIComponent(calId)}`);
+  await DB.doc('users/' + USER.uid).set({calId:''}, {merge:true});
+  GC.msg = calId ? `「${GCAL_NAME}」カレンダーを削除しました。` : '削除するカレンダーはありませんでした。'; GC.cls = 'sh';
+ } catch(e){ GC.msg = gcErr(e); GC.cls = 'er'; }
+ finally { GC.busy = false; render(); }
+}
+function gcCard(){
+ if(MODE!=='shared') return `<div class="card"><h2>📅 Google カレンダーに反映</h2><p class="muted">お試しモードでは使えません。Firebase の設定後、ログインすると、自分の Google カレンダーに直接反映できます。それまでは下の「Google カレンダー用 CSV」や「.ics」を使ってください。</p></div>`;
+ const n = gcEntries().length;
+ const chk = (k, label) => `<label class="muted" style="white-space:nowrap"><input type="checkbox" data-chg="gcOpt" data-k="${k}" ${GC[k]?'checked':''} ${GC.busy?'disabled':''}> ${label}</label>`;
+ return `<div class="card" id="gc-card"><h2>📅 自分の Google カレンダーに反映</h2>
+  <p class="muted">いま選んでいる表示(${esc(filterNote())})の予定を、あなたの Google カレンダーに作られる専用カレンダー「${GCAL_NAME}」に追加します。もう一度押すと、変わった期限だけを更新し、完了にした項目は消します。ふだんの予定やほかのメンバーのカレンダーには触れません。</p>
+  <div class="row">${chk('ops','未完了の期限')}${chk('dates','出国日・帰国日')}${chk('events','固定イベント')}${chk('jobs','job会(毎週)')}</div>
+  <div class="row" style="margin-top:6px">${chk('remind','期限の前日9:00に通知')}${chk('prune','完了・削除した項目の予定を消す')}</div>
+  <div class="row" style="margin-top:10px"><button class="btn pri" data-act="gcSync" ${GC.busy?'disabled':''}>${GC.busy?'反映中…':`Google カレンダーに反映(対象 ${n}件)`}</button>
+   <button class="btn sm dng" data-act="gcRemoveCal" style="margin-left:auto" ${GC.busy?'disabled':''}>専用カレンダーを削除</button></div>
+  <p id="gc-msg" class="banner ${GC.cls||'sh'}" style="margin-top:10px;${GC.msg?'':'display:none'}">${GC.msg}</p>
+  <p class="muted">初回は Google から「カレンダーの作成と管理」の許可を求められます。「このアプリは Google で確認されていません」と出た場合は「詳細」→「(安全ではないページ)に移動」で進めます(管理者が作った内部向けアプリのため)。期限が変わったら、もう一度このボタンを押してください(自動では反映されません)。</p></div>`;
+}
+
+VIEWS.mem = function(){
+ const me = ME || {};
+ const rows = MEMBERS.map(m => `<tr><td>${esc(m.email)}${m.email===me.email?' <span class="muted">(あなた)</span>':''}</td><td>${esc(m.name)||'<span class="muted">未設定</span>'}</td>
+  <td>${IS_ADMIN && m.email!==me.email ? `<select data-chg="memRole" data-e="${esc(m.email)}"><option value="member"${m.role==='member'?' selected':''}>メンバー</option><option value="admin"${m.role==='admin'?' selected':''}>管理者</option></select>` : (m.role==='admin'?'管理者':'メンバー')}</td>
+  <td>${IS_ADMIN && m.email!==me.email ? `<button class="btn sm dng" data-act="memDel" data-e="${esc(m.email)}">外す</button>` : ''}</td></tr>`).join('');
+ return `<div class="card"><h2>あなたの名前</h2>
+  <p class="muted">渡航者の「担当メンバー(で担)」欄と同じ書き方にすると、「自分の担当だけ」ボタンで自分の担当分をすぐ表示できます。</p>
+  <div class="row"><input id="my-name" value="${esc(me.name||'')}" placeholder="例:佐藤"><button class="btn pri" data-act="myName">保存</button></div></div>
+ <div class="card"><h2>メンバー(${MEMBERS.length}人)</h2>
+  <p class="muted">ここに登録された Google アカウントだけが、このカレンダーを見たり編集したりできます。${IS_ADMIN?'':'追加・削除は管理者だけができます。'}</p>
+  ${IS_ADMIN?`<div class="row" style="margin-bottom:10px"><input id="new-mem-email" type="email" placeholder="追加する Gmail / Google アカウントのアドレス" style="flex:1;min-width:220px"><input id="new-mem-name" placeholder="名前(任意)" style="width:140px">
+   <select id="new-mem-role"><option value="member">メンバー</option><option value="admin">管理者</option></select><button class="btn pri" data-act="memAdd">追加</button></div>`:''}
+  <div class="tbl-wrap"><table><thead><tr><th>メールアドレス</th><th>名前</th><th>権限</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+  <p class="muted">追加した人には、このページの URL を伝えてください。その人が追加したアドレスの Google アカウントでログインすると使えます。</p></div>`;
+};
+const MEM_ACT = {
+ async myName(){ const n = val('my-name'); try { await DB.collection('members').doc(ME.email).update({name:n}); ME.name = n; toast('保存しました'); render(); } catch(e){ onWriteErr(e); } },
+ async memAdd(){ const em = val('new-mem-email').toLowerCase(), nm = val('new-mem-name'), role = val('new-mem-role')==='admin'?'admin':'member';
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return toast('メールアドレスを正しく入力してください');
+  if(MEMBERS.some(m=>m.email===em)) return toast('すでに登録されています');
+  try { await DB.collection('members').doc(em).set({role, name:nm, addedBy:ME.email, addedAt:firebase.firestore.FieldValue.serverTimestamp()}); toast(`${em} を追加しました`); } catch(e){ onWriteErr(e); } },
+ async memDel(t){ const em = t.dataset.e; if(!await ask(`${em} をメンバーから外しますか?\nこの人はカレンダーを見られなくなります。`, '外す')) return;
+  try { await DB.collection('members').doc(em).delete(); toast('外しました'); } catch(e){ onWriteErr(e); } }
+};
+
+/* ================= 操作 ================= */
+function val(id){ const el = document.getElementById(id); return el ? el.value.trim() : ''; }
+function move(arr, id, dir){ const i = arr.findIndex(x=>x.id===id), j = i + dir; if(i<0 || j<0 || j>=arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; }
+async function replaceAll(next){
+ if(MODE==='shared'){
+  const keep = new Set(next.eps.map(e=>e.id));
+  state.eps.filter(e=>!keep.has(e.id)).forEach(e=>removeEp(e.id));
+  state = next; next.eps.forEach(saveEp); saveCfg(); saveIr();
+ } else { state = next; saveLocal(); }
+ ui.repText = null; ui.editId = null; render();
+}
+const ACT = {
+ ...MEM_ACT,
+ login(){ login(); }, logout(){ logout(); }, reload(){ location.reload(); },
+ vMode(t){ V.mode = t.dataset.m; if(V.mode==='team' && !V.team) V.team = teams()[0] || ''; if(V.mode==='person' && !V.person) V.person = (ME && ME.name) || people()[0] || ''; F.ep = ''; applyView(); render(); },
+ vMe(){ V.mode = 'person'; V.person = ME.name; F.ep = ''; applyView(); render(); },
+ newEpOn(t){ ui.editId = null; ui.prefDepart = t.dataset.d; ui.tab = 'ep'; render(); window.scrollTo({top:0}); const n = document.getElementById('f-name'); if(n) n.focus(); },
+ gcRemoveCal(){ gcRemoveCal(); },
+ mPrev(){ const i = MONTHS.indexOf(ui.month); if(i>0){ ui.month = MONTHS[i-1]; ui.selDay = null; render(); } },
+ mNext(){ const i = MONTHS.indexOf(ui.month); if(i<MONTHS.length-1){ ui.month = MONTHS[i+1]; ui.selDay = null; render(); } },
+ mToday(){ ui.month = todayStr().slice(0,7); ui.selDay = todayStr(); render(); },
+ day(t){ ui.selDay = t.dataset.d; render(); },
+ cycle(t, e){ e.stopPropagation(); const ep = epById(t.dataset.ep); if(!ep) return; const order = ['todo','doing','done'], s = order[(order.indexOf(getSt(ep,t.dataset.op))+1)%3];
+  ui.selDay = (t.closest('.cell') && t.closest('.cell').dataset.d) || ui.selDay; setStatus(ep.id, t.dataset.op, s); toast(`ステータス:${STATUS[s]}`); },
+ fClear(){ V.mode = 'all'; F.ep = ''; applyView(); render(); },
+ epSave(){
+  const d = {name:val('f-name'), team:val('f-team'), owner:val('f-owner'), country:val('f-country'), op:val('f-op'), depart:val('f-depart'), ret:val('f-ret')};
+  if(!d.name || !d.team || !d.depart) return toast('渡航者名・チーム名・出国日は必須です');
+  if(!isValidDate(d.depart)) return toast('出国日が正しくありません');
+  if(d.ret && (!isValidDate(d.ret) || d.ret < d.depart)) return toast('帰国日は出国日以降の日付にしてください');
+  const e = ui.editId && epById(ui.editId); let ep;
+  if(e){ Object.assign(e, d); ep = e; } else { ep = {id:uid(), sample:false, statuses:{}, ...d}; state.eps.push(ep); }
+  const left = diffDays(d.depart, todayStr());
+  toast(d.depart < RANGE_START || d.depart > RANGE_END ? '保存しました(出国日が表示期間 2026/11〜2027/5 の外です)'
+   : (!e && left >= 0 && left < 40) ? `登録しました。⚠出国まで${left}日:マッチ承認(Approved)から出国までは40日以上が必須です`
+   : (e ? '更新しました' : '登録しました'));
+  ui.editId = null; ui.prefDepart = ''; saveEp(ep); render();
+ },
+ epCancel(){ ui.editId = null; render(); },
+ epEdit(t){ ui.editId = t.dataset.id; render(); window.scrollTo({top:0, behavior:'smooth'}); },
+ async epDel(t){ const ep = epById(t.dataset.id); if(!ep || !await ask(`「${ep.name}」を削除しますか?\nこの人のステータスもすべて消えます。`, '削除する')) return;
+  state.eps = state.eps.filter(x=>x!==ep); if(ui.editId===ep.id) ui.editId = null; removeEp(ep.id); render(); },
+ async delSamples(){ if(!await ask('サンプルの渡航者とサンプルの job 会を削除しますか?', '削除する')) return;
+  state.eps.filter(e=>e.sample).forEach(e=>removeEp(e.id)); state.eps = state.eps.filter(e=>!e.sample);
+  state.jobMeetings = state.jobMeetings.filter(j=>!j.sample);
+  const used = new Set(teams()); Object.keys(state.teamColors).forEach(t => { if(!used.has(t)) delete state.teamColors[t]; });
+  saveCfg(); render(); toast('サンプルを削除しました'); },
+ repRegen(){ ui.repText = genReport(ui.repTeam, ui.repDate); render(); },
+ repCopy(){ const ta = document.getElementById('rep-out'); ui.repText = ta.value; copyText(ta.value); },
+ opAdd(){ const n = val('new-op-name'), d = val('new-op-days'); if(!n || d==='' || isNaN(Number(d))) return toast('項目名と日数を入力してください'); state.opDefs.push({id:uid(), name:n, base:val('new-op-base')==='ret'?'ret':'dep', days:Math.max(0,Math.round(Number(d))), dir:val('new-op-dir')==='after'?'after':'before', must:false, note:''}); saveCfg(); render(); },
+ async opReset(){ if(!await ask('オペレーション定義をマニュアルの初期値(30項目)に戻しますか?\n追加・編集した項目は消えます。同じ項目のステータスは残ります。', '初期値に戻す')) return;
+  state.opDefs = DEFAULT_OPS.map(o => ({...o})); saveCfg(); render(); toast('初期値に戻しました'); },
+ opUp(t){ move(state.opDefs, t.dataset.id, -1); saveCfg(); render(); },
+ opDown(t){ move(state.opDefs, t.dataset.id, 1); saveCfg(); render(); },
+ async opDel(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(!o || !await ask(`項目「${o.name}」を削除しますか?\n全渡航者の一覧・カレンダーから消えます。`, '削除する')) return;
+  state.opDefs = state.opDefs.filter(x=>x!==o); saveCfg(); render(); },
+ evAdd(){ const d = val('new-ev-date'), ti = val('new-ev-title'); if(!isValidDate(d) || !ti) return toast('日付と内容を入力してください'); state.events.push({id:uid(), date:d, time:val('new-ev-time'), title:ti, kind:''}); saveCfg(); render(); },
+ async evDel(t){ const e = state.events.find(x=>x.id===t.dataset.id); if(!e || !await ask(`「${e.title}」を削除しますか?`, '削除する')) return; state.events = state.events.filter(x=>x!==e); saveCfg(); render(); },
+ jobAdd(){ const tm = val('new-jm-team'); if(!tm) return toast('チーム名を入力してください'); state.jobMeetings.push({id:uid(), team:tm, weekday:Number(val('new-jm-wd'))||0, time:val('new-jm-time'), sample:false}); saveCfg(); render(); },
+ jobDel(t){ state.jobMeetings = state.jobMeetings.filter(x=>x.id!==t.dataset.id); saveCfg(); render(); },
+ irAdd(){ const d = val('new-ir-date'); if(!isValidDate(d)) return toast('日付を入力してください'); if(state.irCalls.includes(d)) return toast('その日は登録済みです'); state.irCalls.push(d); saveIr(); render(); toast(`${jp(d)} のIRコールを登録しました`); },
+ irAddDay(t){ if(!state.irCalls.includes(t.dataset.d)){ state.irCalls.push(t.dataset.d); saveIr(); } render(); },
+ irDel(t, e){ e.stopPropagation(); state.irCalls = state.irCalls.filter(d=>d!==t.dataset.d); saveIr(); render(); },
+ exportJson(){ offerFile(`ogx-opcal-${stamp()}.json`, JSON.stringify({version:1, ...state}, null, 2), 'application/json'); },
+ copyJson(){ copyText(JSON.stringify({version:1, ...state}, null, 2)); },
+ exportCsv, exportGcal,
+ gcSync(){ gcSync(); }, toGcal(){ ui.tab = 'data'; render(); window.scrollTo({top:0}); },
+ exportIcs(){ offerFile(`ogx-operations-${stamp()}.ics`, buildIcs(), 'text/calendar;charset=utf-8'); },
+ copyIcs(){ copyText(buildIcs()); },
+ async resetAll(){
+  if(MODE==='shared' && !IS_ADMIN) return toast('初期化は管理者だけができます');
+  if(!await ask(MODE==='shared' ? '共有データをすべて消して初期設定に戻しますか?全員の画面から渡航者・IRコールが消え、元に戻せません。先に JSON を書き出しておくと安全です。' : 'すべてのデータを消して初期状態に戻しますか?元に戻せません。先に JSON を書き出しておくと安全です。', '初期化する')) return;
+  await replaceAll(MODE==='shared' ? {...defaultConfig(), irCalls:[], eps:[]} : defaultLocalState()); toast('初期化しました');
+ }
+};
+const CHG = {
+ vTeam(t){ V.team = t.value; F.ep = ''; applyView(); render(); }, vPerson(t){ V.person = t.value; F.ep = ''; applyView(); render(); }, fEp(t){ F.ep = t.value; render(); },
+ async memRole(t){ try { await DB.collection('members').doc(t.dataset.e).update({role: t.value==='admin'?'admin':'member'}); toast('権限を変更しました'); } catch(e){ onWriteErr(e); render(); } },
+ status(t){ setStatus(t.dataset.ep, t.dataset.op, t.value); },
+ showDone(t){ ui.showDone = t.checked; render(); },
+ tlEp(t){ ui.tlEp = t.value; render(); },
+ repTeam(t){ ui.repTeam = t.value; ui.repText = genReport(ui.repTeam, ui.repDate); render(); },
+ repDate(t){ if(isValidDate(t.value)){ ui.repDate = t.value; ui.repText = genReport(ui.repTeam, ui.repDate); render(); } },
+ repText(t){ ui.repText = t.value; },
+ opName(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(o && t.value.trim()){ o.name = t.value.trim(); saveCfg(); } },
+ opDays(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id), n = Number(t.value); if(o && t.value!=='' && !isNaN(n)){ o.days = Math.max(0,Math.round(n)); saveCfg(); toast('期限を再計算しました'); } },
+ opBase(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(o){ o.base = t.value==='ret'?'ret':'dep'; saveCfg(); toast('期限を再計算しました'); } },
+ opDir(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(o){ o.dir = t.value==='after'?'after':'before'; saveCfg(); toast('期限を再計算しました'); } },
+ opMust(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(o){ o.must = t.checked; saveCfg(); } },
+ opNote(t){ const o = state.opDefs.find(x=>x.id===t.dataset.id); if(o){ o.note = t.value.trim(); saveCfg(); } },
+ evField(t){ const e = state.events.find(x=>x.id===t.dataset.id); if(!e) return; if(t.dataset.f==='date' && !isValidDate(t.value)) return; e[t.dataset.f] = t.value; saveCfg(); if(t.dataset.f==='date') render(); },
+ jobField(t){ const j = state.jobMeetings.find(x=>x.id===t.dataset.id); if(!j) return; j[t.dataset.f] = t.dataset.f==='weekday' ? Number(t.value) : t.value.trim(); saveCfg(); render(); },
+ irTarget(t){ state.irTarget = Math.max(0, Number(t.value)||0); saveCfg(); render(); },
+ teamColor(t){ state.teamColors[t.dataset.team] = t.value; saveCfg(); render(); },
+ icsDone(t){ ui.icsDone = t.checked; },
+ gcOpt(t){ if(t.dataset.k in GC){ GC[t.dataset.k] = t.checked; render(); } },
+ importFile(t){
+  const f = t.files && t.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = async () => {
+   if(MODE==='shared' && !IS_ADMIN){ toast('読み込みは管理者だけができます'); return; }
+   let d; try { d = JSON.parse(r.result); if(!d || !Array.isArray(d.eps) || !Array.isArray(d.opDefs)) throw 0; } catch(e){ toast('読み込めませんでした(この画面で書き出した JSON を選んでください)'); return; }
+   if(!await ask(`「${f.name}」を読み込みます(渡航者 ${d.eps.length}人)。\n今のデータは${MODE==='shared'?'全員分':''}置き換わります。よろしいですか?`, '読み込む')) return;
+   await replaceAll(normAll(d)); toast('読み込みました');
+  };
+  r.readAsText(f, 'utf-8'); t.value = '';
+ }
+};
+document.getElementById('nav').addEventListener('click', e => { const b = e.target.closest('button[data-tab]'); if(b){ ui.tab = b.dataset.tab; if(ui.tab==='rep') ui.repText = null; render(); } });
+document.addEventListener('click', e => { const t = e.target.closest('[data-act]'); if(t && ACT[t.dataset.act] && !t.disabled) ACT[t.dataset.act](t, e); });
+document.addEventListener('change', e => { const t = e.target.closest('[data-chg]'); if(t && CHG[t.dataset.chg]) CHG[t.dataset.chg](t, e); });
+document.addEventListener('input', e => { if(e.target && (e.target.id==='f-depart' || e.target.id==='f-ret')) epPreview(); });
+document.addEventListener('keydown', e => { if(e.key==='Escape' && document.getElementById('modal').classList.contains('show')) document.getElementById('modal-no').click(); });
+render();
+initStore();
+}
+</script>
+</body>
+</html>
